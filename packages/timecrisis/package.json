@@ -1,0 +1,45 @@
+{
+  "name": "timecrisis",
+  "version": "0.1.0",
+  "author": "Sandrino Di Mattia",
+  "license": "MIT",
+  "description": "A TypeScript library for job scheduling and management",
+  "keywords": [
+    "timecrisis",
+    "worker",
+    "scheduler",
+    "sqlite",
+    "typescript",
+    "node"
+  ],
+  "engines": {
+    "node": ">=23.0.0"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint \"**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "cron-parser": "^4.9.0",
+    "pino": "^9.6.0",
+    "zod": "^3.24.1"
+  }
+}

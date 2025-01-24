@@ -1,0 +1,49 @@
+{
+  // TypeScript compiler options
+  "compilerOptions": {
+    // Specify ECMAScript target version
+    "target": "ES2020",
+    // Specify module code generation
+    "module": "ESNext",
+    // List of library files to be included in the compilation
+    "lib": ["ES2020"],
+    // Specify module resolution strategy
+    "moduleResolution": "node",
+    // Specify the root directory of input files
+    "rootDir": ".",
+    // Redirect output structure to the directory
+    "outDir": "dist",
+    // Enable all strict type checking options
+    "strict": true,
+    // Enable strict null checks
+    "strictNullChecks": true,
+    // Enable strict checking of function types
+    "strictFunctionTypes": true,
+    // Enable strict 'bind', 'call', and 'apply' methods on functions
+    "strictBindCallApply": true,
+    // Enable strict checking of property initialization in classes
+    "strictPropertyInitialization": true,
+    // Raise error on 'this' expressions with an implied 'any' type
+    "noImplicitThis": true,
+    // Parse in strict mode and emit "use strict" for each source file
+    "alwaysStrict": true,
+    // Enables emit interoperability between CommonJS and ES Modules
+    "esModuleInterop": true,
+    // Generate .d.ts declaration files
+    "declaration": true,
+    // Create sourcemaps for d.ts files
+    "declarationMap": true,
+    // Generate corresponding .map file
+    "sourceMap": true,
+    // Skip type checking of declaration files
+    "skipLibCheck": true,
+    // Ensure consistent casing in file names
+    "forceConsistentCasingInFileNames": true,
+    // Allow importing JSON modules
+    "resolveJsonModule": true
+  },
+  // Specify files to include in compilation
+  "include": ["src/**/*"],
+  // Specify files to exclude from compilation
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+}
