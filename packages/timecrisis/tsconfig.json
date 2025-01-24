@@ -42,10 +42,12 @@
     // Ensure consistent casing in file names
     "forceConsistentCasingInFileNames": true,
     // Allow importing JSON modules
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    // Include node types
+    "types": ["node"]
   },
   // Specify files to include in compilation
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "vitest.config.ts"],
   // Specify files to exclude from compilation
   "exclude": ["node_modules", "dist"]
 }
