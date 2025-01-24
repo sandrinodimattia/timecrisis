@@ -1,11 +1,15 @@
 # 🕰️ TimeCrisis Job Scheduler
 
-[![Build Status](https://github.com/yourusername/timecrisis/workflows/CI/badge.svg)](https://github.com/yourusername/timecrisis/actions)
+[![Build Status](https://github.com/sandrinodimattia/timecrisis/workflows/CI/badge.svg)](https://github.com/sandrinodimattia/timecrisis/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm version](https://badge.fury.io/js/timecrisis.svg)](https://badge.fury.io/js/timecrisis)
 [![TypeScript](https://img.shields.io/badge/%3C%2F%3E-TypeScript-%230074c1.svg)](https://www.typescriptlang.org/)
 
 A robust, type-safe job scheduling system for Node.js applications. Built for reliability, scalability, and developer experience.
+
+![TimeCrisis](timecrisis.jpg)
+
+> [TimeCrisis](https://en.wikipedia.org/wiki/Time_Crisis_II) is also a popular arcade game made by Namco in 1997.
 
 ## 📦 Packages
 
