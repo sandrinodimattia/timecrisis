@@ -1,5 +1,5 @@
 import { pino } from 'pino';
-import { JobScheduler, InMemoryJobStorage, PinoLogger } from '../../../packages/timecrisis/dist';
+import { JobScheduler, InMemoryJobStorage, PinoLogger } from '@timecrisis/timecrisis';
 
 import { sendEmailJob } from './jobs/send-email';
 

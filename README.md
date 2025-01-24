@@ -33,10 +33,10 @@ A robust, type-safe job scheduling system for Node.js applications. Built for re
 
 ```bash
 # Install core package
-npm install timecrisis
+npm i @timecrisis/timecrisis
 
 # Optional: Install SQLite adapter
-npm install timecrisis-sqlite
+npm i @timecrisis/timecrisis-sqlite
 ```
 
 Basic usage example:

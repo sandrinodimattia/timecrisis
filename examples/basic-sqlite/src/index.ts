@@ -1,8 +1,8 @@
 import { pino } from 'pino';
 import Database from 'better-sqlite3';
 
-import { SQLiteJobStorage } from 'timecrisis-sqlite';
-import { JobScheduler, PinoLogger } from 'timecrisis';
+import { SQLiteJobStorage } from '@timecrisis/timecrisis-sqlite';
+import { JobScheduler, PinoLogger } from '@timecrisis/timecrisis';
 
 import { sendEmailJob } from './jobs/send-email';
 

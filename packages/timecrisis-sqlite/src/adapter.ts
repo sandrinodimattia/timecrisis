@@ -35,7 +35,7 @@ import {
   JobNotFoundError,
   JobRunNotFoundError,
   ScheduledJobNotFoundError,
-} from 'timecrisis';
+} from '@timecrisis/timecrisis';
 
 import { SQLiteStatements as SQL } from './statements.js';
 import { fromBoolean, fromDate, parseJSON, serializeData, toBoolean, toDate } from './utils.js';

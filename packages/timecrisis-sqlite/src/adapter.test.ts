@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { SQLiteJobStorage } from './adapter.js';
-import { JobNotFoundError, ScheduledJobNotFoundError } from 'timecrisis';
+import { JobNotFoundError, ScheduledJobNotFoundError } from '@timecrisis/timecrisis';
 
 describe('SQLiteJobStorage', () => {
   let db: Database.Database;

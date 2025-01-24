@@ -8,7 +8,7 @@ SQLite storage adapter for Time Crisis job scheduler. Provides a production-read
 ## Installation
 
 ```bash
-npm install timecrisis timecrisis-sqlite better-sqlite3
+npm i @timecrisis/timecrisis @timecrisis/timecrisis-sqlite better-sqlite3
 ```
 
 ## Features

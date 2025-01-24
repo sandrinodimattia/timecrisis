@@ -8,7 +8,7 @@ Core package for the Time Crisis job scheduler.
 ## Installation
 
 ```bash
-npm install timecrisis
+npm i @timecrisis/timecrisis
 ```
 
 ## Features
