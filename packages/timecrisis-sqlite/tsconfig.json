@@ -2,15 +2,15 @@
   // TypeScript compiler options
   "compilerOptions": {
     // Specify ECMAScript target version
-    "target": "ES2020",
+    "target": "ES2022",
     // Specify module code generation
-    "module": "ESNext",
+    "module": "NodeNext",
     // List of library files to be included in the compilation
-    "lib": ["ES2020"],
+    "lib": ["ES2022"],
     // Specify module resolution strategy
-    "moduleResolution": "node",
+    "moduleResolution": "NodeNext",
     // Specify the root directory of input files
-    "rootDir": "src",
+    "rootDir": ".",
     // Redirect output structure to the directory
     "outDir": "dist",
     // Enable all strict type checking options
@@ -28,7 +28,9 @@
     // Parse in strict mode and emit "use strict" for each source file
     "alwaysStrict": true,
     // Enables emit interoperability between CommonJS and ES Modules
-    "esModuleInterop": true,
+    "esModuleInterop": false,
+    // Allow default imports from modules with no default export
+    "allowSyntheticDefaultImports": true,
     // Generate .d.ts declaration files
     "declaration": true,
     // Create sourcemaps for d.ts files

@@ -2,8 +2,8 @@ import { randomUUID } from 'crypto';
 import Database from 'better-sqlite3';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { SQLiteJobStorage } from './adapter';
-import { JobNotFoundError, ScheduledJobNotFoundError } from '../../timecrisis/dist';
+import { SQLiteJobStorage } from './adapter.js';
+import { JobNotFoundError, ScheduledJobNotFoundError } from 'timecrisis';
 
 describe('SQLiteJobStorage', () => {
   let db: Database.Database;

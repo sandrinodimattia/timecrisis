@@ -35,10 +35,10 @@ import {
   JobNotFoundError,
   JobRunNotFoundError,
   ScheduledJobNotFoundError,
-} from '../../timecrisis/dist';
+} from 'timecrisis';
 
-import { SQLiteStatements as SQL } from './statements';
-import { fromBoolean, fromDate, parseJSON, serializeData, toBoolean, toDate } from './utils';
+import { SQLiteStatements as SQL } from './statements.js';
+import { fromBoolean, fromDate, parseJSON, serializeData, toBoolean, toDate } from './utils.js';
 
 /**
  * SQLite storage adapter that implements the JobStorage interface.

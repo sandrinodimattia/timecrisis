@@ -1,0 +1,21 @@
+{
+  "name": "basic-example",
+  "version": "1.0.0",
+  "description": "Basic example using the Chrono Tigger library",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "pnpm exec tsx src/index.ts | pino-pretty"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "pino": "^9.6.0",
+    "timecrisis": "file:../../packages/timecrisis",
+    "timecrisis-sqlite": "file:../../packages/timecrisis-sqlite",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "pino-pretty": "^13.0.0"
+  }
+}
