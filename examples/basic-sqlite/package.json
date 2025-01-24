@@ -9,10 +9,10 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@timecrisis/timecrisis": "^0.1.1",
+    "@timecrisis/timecrisis-sqlite": "^0.1.1",
     "better-sqlite3": "^11.8.1",
     "pino": "^9.6.0",
-    "timecrisis": "file:../../packages/timecrisis",
-    "timecrisis-sqlite": "file:../../packages/timecrisis-sqlite",
     "zod": "^3.24.1"
   },
   "devDependencies": {
