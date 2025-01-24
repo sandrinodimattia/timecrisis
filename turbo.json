@@ -24,11 +24,21 @@
         "^build"
       ]
     },
+    "test": {
+      "dependsOn": [
+        "^build",
+        "build"
+      ]
+    },
+    "test:coverage": {
+      "dependsOn": [
+        "^build",
+        "build"
+      ]
+    },
     "dev": {
       "cache": false,
       "persistent": true
-    },
-    "test": {},
-    "test:coverage": {}
+    }
   }
 }
