@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "author": "Sandrino Di Mattia",
   "license": "MIT",
-  "description": "A SQLite storage adapter for the TimeCrisis job scheduler",
+  "description": "A SQLite storage adapter for the Time Crisis job scheduler",
   "keywords": [
     "timecrisis",
     "worker",

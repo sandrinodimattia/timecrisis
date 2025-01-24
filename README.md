@@ -1,4 +1,4 @@
-# 🕰️ TimeCrisis Job Scheduler
+# 🕰️ Time Crisis Job Scheduler
 
 [![Build Status](https://github.com/sandrinodimattia/timecrisis/workflows/CI/badge.svg)](https://github.com/sandrinodimattia/timecrisis/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -7,16 +7,16 @@
 
 A robust, type-safe job scheduling system for Node.js applications. Built for reliability, scalability, and developer experience.
 
-![TimeCrisis](timecrisis.jpg)
+![Time Crisis II](timecrisis.jpg)
 
-> [TimeCrisis](https://en.wikipedia.org/wiki/Time_Crisis_II) is also a popular arcade game made by Namco in 1997.
+> [Time Crisis II](https://en.wikipedia.org/wiki/Time_Crisis_II) is a popular arcade game made by Namco in 1997.
 
 ## 📦 Packages
 
 | Package                                             | Description                                       | Version                                                                                                      |
 | --------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | [`timecrisis`](./packages/timecrisis)               | Core job scheduling system with in-memory storage | [![npm version](https://badge.fury.io/js/timecrisis.svg)](https://badge.fury.io/js/timecrisis)               |
-| [`timecrisis-sqlite`](./packages/timecrisis-sqlite) | SQLite storage adapter for TimeCrisis             | [![npm version](https://badge.fury.io/js/timecrisis-sqlite.svg)](https://badge.fury.io/js/timecrisis-sqlite) |
+| [`timecrisis-sqlite`](./packages/timecrisis-sqlite) | SQLite storage adapter for Time Crisis            | [![npm version](https://badge.fury.io/js/timecrisis-sqlite.svg)](https://badge.fury.io/js/timecrisis-sqlite) |
 
 ## ✨ Features
 
@@ -167,8 +167,8 @@ console.log('Current job stats:', metrics.jobs);
 
 See individual package READMEs for detailed documentation:
 
-- [TimeCrisis Core Documentation](https://github.com/sandrinodimattia/timecrisis/tree/main/packages/timecrisis/README.md)
-- [TimeCrisis SQLite Documentation](https://github.com/sandrinodimattia/timecrisis/tree/main/packages/timecrisis-sqlite/README.md)
+- [Time Crisis Core Documentation](https://github.com/sandrinodimattia/timecrisis/tree/main/packages/timecrisis/README.md)
+- [Time Crisis SQLite Documentation](https://github.com/sandrinodimattia/timecrisis/tree/main/packages/timecrisis-sqlite/README.md)
 
 ## 🛠️ Development
 

@@ -1,4 +1,4 @@
-# TimeCrisis - Basic Example with SQLite
+# Time Crisis - Basic Example with SQLite
 
 Build the library first by running this in the root:
 

@@ -1,9 +1,9 @@
-# TimeCrisis Job Scheduler
+# Time Crisis Job Scheduler
 
 [![npm version](https://badge.fury.io/js/timecrisis.svg)](https://badge.fury.io/js/timecrisis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Core package for the TimeCrisis job scheduler.
+Core package for the Time Crisis job scheduler.
 
 ## Installation
 

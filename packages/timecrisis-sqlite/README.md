@@ -1,9 +1,9 @@
-# TimeCrisis SQLite
+# Time Crisis SQLite
 
 [![npm version](https://badge.fury.io/js/timecrisis-sqlite.svg)](https://badge.fury.io/js/timecrisis-sqlite)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-SQLite storage adapter for TimeCrisis job scheduler. Provides a production-ready, durable storage backend using SQLite.
+SQLite storage adapter for Time Crisis job scheduler. Provides a production-ready, durable storage backend using SQLite.
 
 ## Installation
 

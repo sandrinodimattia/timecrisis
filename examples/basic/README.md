@@ -1,4 +1,4 @@
-# TimeCrisis - Basic Example
+# Time Crisis - Basic Example
 
 Build the library first by running this in the root:
 

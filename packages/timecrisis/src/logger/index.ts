@@ -1,5 +1,5 @@
 /**
- * Logger interface for TimeCrisis
+ * Logger interface for Time Crisis
  */
 export interface Logger {
   /**
