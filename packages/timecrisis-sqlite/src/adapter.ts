@@ -217,8 +217,6 @@ export class SQLiteJobStorage implements JobStorage {
 
   constructor(db: Database) {
     this.db = db;
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('busy_timeout = 5000');
   }
 
   /**

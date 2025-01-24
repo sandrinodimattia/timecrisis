@@ -10,6 +10,9 @@ const runScheduler = async () => {
   const logger = pino({ name: 'basic-example' });
 
   const db = new Database('db.sqlite');
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+
   const storage = new SQLiteJobStorage(db);
   await storage.init();
 
