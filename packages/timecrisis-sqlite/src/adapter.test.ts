@@ -407,6 +407,31 @@ describe('SQLiteJobStorage', () => {
       const zeroJobs = await storage.listJobs({ limit: 1 });
       expect(zeroJobs).toHaveLength(1);
     });
+
+    it('should create job with default progress and update progress', async () => {
+      const jobId = await storage.createJob({
+        type: 'test-job',
+        status: 'pending',
+        data: { test: 'data' },
+        priority: 1,
+        attempts: 0,
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        runAt: new Date(),
+      });
+
+      // Check default progress
+      const job = await storage.getJob(jobId);
+      expect(job?.progress).toBe(0);
+
+      // Update progress
+      await storage.updateJob(jobId, {
+        progress: 50,
+      });
+
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob?.progress).toBe(50);
+    });
   });
 
   describe('Job Runs', () => {
@@ -416,7 +441,7 @@ describe('SQLiteJobStorage', () => {
       jobId = await storage.createJob({
         type: 'test-job',
         status: 'pending',
-        data: {},
+        data: { test: 'data' },
         priority: 1,
         attempts: 0,
         maxRetries: 3,
@@ -524,6 +549,27 @@ describe('SQLiteJobStorage', () => {
       expect(jobRuns[1].attempt).toBe(2);
       expect(jobRuns[0].status).toBe('failed');
       expect(jobRuns[1].status).toBe('completed');
+    });
+
+    it('should create job run with default progress and update progress', async () => {
+      const runId = await storage.createJobRun({
+        jobId,
+        status: 'running',
+        startedAt: new Date(),
+        attempt: 1,
+      });
+
+      // Check default progress
+      const run = await storage.getJobRun(runId);
+      expect(run?.progress).toBe(0);
+
+      // Update progress
+      await storage.updateJobRun(runId, {
+        progress: 75,
+      });
+
+      const updatedRun = await storage.getJobRun(runId);
+      expect(updatedRun?.progress).toBe(75);
     });
   });
 

@@ -6,6 +6,7 @@ export const SQLiteStatements = {
       status,
       data,
       priority,
+      progress,
       attempts,
       max_retries,
       backoff_strategy,
@@ -26,6 +27,7 @@ export const SQLiteStatements = {
       @status,
       @data,
       @priority,
+      @progress,
       @attempts,
       @max_retries,
       @backoff_strategy,
@@ -54,6 +56,7 @@ export const SQLiteStatements = {
       status = @status,
       data = @data,
       priority = @priority,
+      progress = @progress,
       attempts = @attempts,
       max_retries = @max_retries,
       backoff_strategy = @backoff_strategy,
@@ -92,6 +95,7 @@ export const SQLiteStatements = {
       job_id,
       status,
       started_at,
+      progress,
       finished_at,
       attempt,
       error,
@@ -101,6 +105,7 @@ export const SQLiteStatements = {
       @job_id,
       @status,
       @started_at,
+      @progress,
       @finished_at,
       @attempt,
       @error,
@@ -117,10 +122,11 @@ export const SQLiteStatements = {
     SET
       status = @status,
       started_at = @started_at,
+      progress = @progress,
       finished_at = @finished_at,
-      attempt = @attempt,
       error = @error,
-      error_stack = @error_stack
+      error_stack = @error_stack,
+      attempt = @attempt
     WHERE id = @id
   `,
 

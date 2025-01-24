@@ -93,7 +93,8 @@ export class JobScheduler {
   /**
    * Register a job type
    */
-  registerJob<T extends z.ZodType = z.ZodType>(job: JobDefinition<T>): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registerJob<T extends z.ZodObject<any> = z.ZodObject<any>>(job: JobDefinition<T>): void {
     if (this.jobs.has(job.type)) {
       throw new JobAlreadyRegisteredError(job.type);
     }

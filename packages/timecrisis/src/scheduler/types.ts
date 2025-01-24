@@ -197,7 +197,8 @@ export interface JobHandler<T = unknown> {
 /**
  * Interface for job definitions.
  */
-export interface JobDefinition<T extends z.ZodType = z.ZodType> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
   /**
    * Type of job.
    */
@@ -239,17 +240,20 @@ export interface JobDefinition<T extends z.ZodType = z.ZodType> {
  */
 export interface JobContext {
   /**
-   * ID of the current job.
+   * The unique identifier of the job being executed
    */
   jobId: string;
 
   /**
-   * Job payload data.
+   * The job payload
    */
   payload: unknown;
 
   /**
    * Log a message at the specified level.
+   * @param level - Log level
+   * @param message - Message to log
+   * @param metadata - Optional metadata to include with the log
    */
   log(
     level: 'info' | 'warn' | 'error',
@@ -261,6 +265,18 @@ export interface JobContext {
    * Keep the job lock alive (for long-running jobs).
    */
   touch(): Promise<void>;
+
+  /**
+   * Update the progress of the job (0-100).
+   * @param progress - Progress value between 0 and 100
+   */
+  updateProgress(progress: number): Promise<void>;
+
+  /**
+   * Update the job data.
+   * @param data - Updated job data
+   */
+  updateData(data: Record<string, unknown>): Promise<void>;
 }
 
 /**

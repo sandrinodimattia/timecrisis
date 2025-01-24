@@ -27,6 +27,7 @@ describe('InMemoryJobStorage', () => {
         status: 'pending',
         referenceId: 'ref-123',
         data: {},
+        progress: 0,
         priority: 1,
         attempts: 0,
         maxRetries: 3,

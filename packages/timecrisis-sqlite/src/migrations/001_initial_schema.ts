@@ -8,6 +8,7 @@ export function up(db: Database): void {
       status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'scheduled')),
       data TEXT NOT NULL,
       priority INTEGER NOT NULL DEFAULT 1,
+      progress INTEGER NOT NULL DEFAULT 0,
       attempts INTEGER NOT NULL DEFAULT 0,
       max_retries INTEGER NOT NULL DEFAULT 0,
       backoff_strategy TEXT NOT NULL DEFAULT 'exponential' 
@@ -32,6 +33,7 @@ export function up(db: Database): void {
       job_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
       started_at TEXT,
+      progress INTEGER NOT NULL DEFAULT 0,
       finished_at TEXT,
       error TEXT,
       error_stack TEXT,

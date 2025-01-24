@@ -1,6 +1,9 @@
-import { Job } from '../storage/schemas/index.js';
+import { z } from 'zod';
+
 import { Logger } from '../logger/index.js';
+import { Job } from '../storage/schemas/index.js';
 import { JobStorage } from '../storage/types.js';
+import { JobContextImpl } from '../scheduler/context.js';
 import { JobContext, JobDefinition, JobDefinitionNotFoundError } from '../scheduler/types.js';
 
 export interface PendingJobsConfig {
@@ -188,30 +191,16 @@ export class PendingJobsTask {
     });
 
     // Create job context with touch function
-    const ctx = {
-      jobId: job.id,
-      jobRunId: jobRunId,
-      attempts: attempt,
-      maxAttempts: job.maxRetries,
-      payload: job.data,
-      log: async (
-        level: 'info' | 'warn' | 'error',
-        message: string,
-        metadata?: Record<string, unknown>
-      ): Promise<void> => {
-        await this.storage.createJobLog({
-          jobId: job.id,
-          jobRunId: jobRunId,
-          level,
-          message,
-          metadata,
-          timestamp: new Date(),
-        });
-      },
-      touch: async (): Promise<void> => {
-        await this.touchJob(job.id);
-      },
-    };
+    const ctx = new JobContextImpl(
+      this.storage,
+      jobDef,
+      job.id,
+      jobRunId,
+      attempt,
+      job.maxRetries,
+      job.data,
+      async () => await this.touchJob(job.id)
+    );
 
     const startTime = Date.now();
     try {
@@ -227,20 +216,23 @@ export class PendingJobsTask {
           jobId: job.id,
           type: job.type,
         });
-        await jobDef.handle(job.data, ctx);
+
+        await jobDef.handle(job.data as typeof jobDef.schema, ctx);
       }
 
       // Mark success
       const durationMs = Date.now() - startTime;
       await this.storage.updateJob(job.id, {
         status: 'completed',
-        lockedAt: null,
+        progress: 100,
         executionDuration: durationMs,
+        lockedAt: null,
       });
 
       // Create success result
       await this.storage.updateJobRun(jobRunId, {
         status: 'completed',
+        progress: 100,
         finishedAt: new Date(),
       });
 
@@ -253,7 +245,11 @@ export class PendingJobsTask {
       await ctx.log('info', `Job completed successfully`);
     } catch (error: unknown) {
       const durationMs = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      if (error instanceof z.ZodError) {
+        const flat = error.errors.map((err) => `${err.message}`).join(',');
+        errorMessage = `Zod validation error: ${flat}`;
+      }
 
       this.logger.error('Job failed', {
         jobId: job.id,

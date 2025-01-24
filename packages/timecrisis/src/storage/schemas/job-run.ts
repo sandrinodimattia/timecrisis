@@ -25,6 +25,11 @@ export const JobRunSchema = z.object({
   status: JobRunStatusSchema,
 
   /**
+   * Progress of the job run (0-100)
+   */
+  progress: z.number().min(0).max(100).default(0),
+
+  /**
    * When the run started
    */
   startedAt: z.date(),
@@ -55,6 +60,8 @@ export const JobRunSchema = z.object({
  */
 export const CreateJobRunSchema = JobRunSchema.omit({
   id: true,
+}).partial({
+  progress: true,
 });
 
 /**

@@ -330,6 +330,7 @@ export class SQLiteJobStorage implements JobStorage {
       status: newJob.status,
       data: serializeData(newJob.data),
       priority: newJob.priority,
+      progress: newJob.progress,
       attempts: newJob.attempts,
       max_retries: newJob.maxRetries,
       backoff_strategy: newJob.backoffStrategy,
@@ -393,6 +394,7 @@ export class SQLiteJobStorage implements JobStorage {
       status: updatedJob.status,
       data: serializeData(updatedJob.data),
       priority: updatedJob.priority,
+      progress: updatedJob.progress,
       attempts: updatedJob.attempts,
       max_retries: updatedJob.maxRetries,
       backoff_strategy: updatedJob.backoffStrategy,
@@ -432,6 +434,7 @@ export class SQLiteJobStorage implements JobStorage {
       job_id: newRun.jobId,
       status: newRun.status,
       started_at: fromDate(newRun.startedAt),
+      progress: newRun.progress,
       finished_at: fromDate(newRun.finishedAt),
       attempt: newRun.attempt,
       error: newRun.error ?? null,
@@ -467,11 +470,25 @@ export class SQLiteJobStorage implements JobStorage {
       id: updatedRun.id,
       status: updatedRun.status,
       started_at: fromDate(updatedRun.startedAt),
+      progress: updatedRun.progress,
       finished_at: fromDate(updatedRun.finishedAt),
       attempt: updatedRun.attempt,
       error: updatedRun.error ?? null,
       error_stack: updatedRun.error_stack ?? null,
     });
+  }
+
+  /**
+   * Retrieve a job run by its unique identifier
+   * @param id - Unique identifier of the job run to retrieve
+   * @returns Job run data or null if not found
+   */
+  async getJobRun(id: string): Promise<JobRun | null> {
+    const row = this.stmtSelectJobRunById.get(id);
+    if (!row) {
+      return null;
+    }
+    return this.mapRowToJobRun(row);
   }
 
   /**
@@ -874,6 +891,7 @@ export class SQLiteJobStorage implements JobStorage {
       status: row.status,
       data: parseJSON(row.data),
       priority: row.priority,
+      progress: row.progress,
       attempts: row.attempts,
       maxRetries: row.max_retries,
       backoffStrategy: row.backoff_strategy,
@@ -898,6 +916,7 @@ export class SQLiteJobStorage implements JobStorage {
       jobId: row.job_id,
       status: row.status,
       startedAt: toDate(row.started_at),
+      progress: row.progress,
       finishedAt: toDate(row.finished_at),
       attempt: row.attempt,
       error: row.error ?? undefined,

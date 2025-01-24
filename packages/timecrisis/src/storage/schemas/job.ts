@@ -45,6 +45,11 @@ export const JobSchema = z.object({
   status: JobStatusSchema.default('pending'),
 
   /**
+   * Progress of the job (0-100)
+   */
+  progress: z.number().min(0).max(100).default(0),
+
+  /**
    * Duration of execution in milliseconds.
    */
   executionDuration: z.number().int().min(0).optional(),
@@ -119,6 +124,7 @@ export const CreateJobSchema = JobSchema.omit({
   createdAt: true,
   updatedAt: true,
 }).partial({
+  progress: true,
   priority: true,
   status: true,
   attempts: true,

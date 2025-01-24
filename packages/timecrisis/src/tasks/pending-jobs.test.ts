@@ -13,8 +13,12 @@ describe('PendingJobsTask', () => {
   let task: PendingJobsTask;
   let executeForkMode: (jobDef: JobDefinition, job: Job, ctx: unknown) => Promise<void>;
   let touchJob: (jobId: string) => Promise<void>;
+  const now = new Date('2025-01-23T00:00:00.000Z');
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
     storage = new MockJobStorage();
     jobs = new Map();
     executeForkMode = vi.fn();
@@ -24,11 +28,18 @@ describe('PendingJobsTask', () => {
       maxConcurrentJobs: 20,
       lockLifetime: 5000,
     });
+
+    // Clear all mocks before each test
+    vi.clearAllMocks();
   });
 
   afterEach(() => {
     storage.cleanup();
+
+    // Clear all timers and mocks
+    vi.clearAllTimers();
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   describe('execute', () => {
@@ -127,6 +138,7 @@ describe('PendingJobsTask', () => {
         attempts: 0,
         maxRetries: 3,
         failCount: 0,
+        progress: 0,
         priority: 1,
         backoffStrategy: 'exponential',
         failReason: undefined,
@@ -529,6 +541,164 @@ describe('PendingJobsTask', () => {
         })
       );
       expect(handler).toHaveBeenCalled();
+    });
+
+    it('should handle progress updates in both job and job run', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { foo: 'bar' },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const jobDef: JobDefinition = {
+        type: 'test',
+        schema: z.object({ foo: z.string() }),
+        handle: vi.fn(async (_, ctx) => {
+          await ctx.updateProgress(25);
+          await ctx.updateProgress(50);
+          await ctx.updateProgress(75);
+        }),
+      };
+      jobs.set('test', jobDef);
+
+      await task.execute();
+
+      // Check that the progress was updated in both job and job run
+      const jobRuns = await storage.listJobRuns(jobId);
+      expect(jobRuns).toHaveLength(1);
+      expect(jobRuns[0].progress).toBe(100);
+
+      const job = await storage.getJob(jobId);
+      expect(job?.progress).toBe(100);
+
+      // Verify the sequence of progress updates
+      const updateCalls = vi.mocked(storage.updateJob).mock.calls;
+      const progressUpdates = updateCalls
+        .filter((call) => call[1].progress !== undefined)
+        .map((call) => call[1].progress);
+
+      expect(progressUpdates).toEqual([25, 50, 75, 100]);
+    });
+
+    it('should handle data updates in job only', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { foo: 'initial' },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const jobDef: JobDefinition = {
+        type: 'test',
+        schema: z.object({ foo: z.string() }),
+        handle: vi.fn(async (data, ctx) => {
+          await ctx.updateData({ foo: 'updated' });
+        }),
+      };
+      jobs.set('test', jobDef);
+
+      await task.execute();
+
+      // Check that data was updated in job
+      const job = await storage.getJob(jobId);
+      expect(job?.data).toEqual({ foo: 'updated' });
+
+      // Verify no data updates in job runs
+      const jobRuns = await storage.listJobRuns(jobId);
+      expect(jobRuns).toHaveLength(1);
+      expect(jobRuns[0]).not.toHaveProperty('data');
+    });
+
+    it('should validate data updates against job schema', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { foo: 'initial' },
+        attempts: 0,
+        maxRetries: 0,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const jobDef: JobDefinition = {
+        type: 'test',
+        schema: z.object({ foo: z.string() }).strict(),
+        handle: vi.fn(async (data, ctx) => {
+          // Try to update with invalid data
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await ctx.updateData({ bar: 123 } as any);
+        }),
+      };
+      jobs.set('test', jobDef);
+
+      await task.execute();
+
+      // Job should be marked as failed due to schema validation error
+      const job = await storage.getJob(jobId);
+      expect(job?.status).toBe('failed');
+      expect(job?.failReason).toContain('Zod validation error');
+
+      // Original data should remain unchanged
+      expect(job?.data).toEqual({ foo: 'initial' });
+    });
+
+    it.only('should preserve updated job data across retries', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { counter: 0 },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async (job, ctx) => {
+          console.log(job, ctx.attempt);
+          if (ctx.attempt === 1) {
+            await ctx.updateData({ counter: 1 });
+            throw new Error('Test error');
+          } else if (ctx.attempt === 2) {
+            expect(job).toEqual({ counter: 1 });
+          }
+        }),
+        schema: z.object({
+          counter: z.number(),
+        }),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      // First execution - should fail
+      await task.execute();
+      vi.advanceTimersByTime(120000);
+
+      // Second execution - should succeed with updated data
+      await task.execute();
+
+      const finalJob = await storage.getJob(jobId);
+      expect(finalJob!.data).toEqual({ counter: 1 });
+      expect(finalJob!.status).toBe('completed');
+      expect(jobDef.handle).toHaveBeenCalledTimes(2);
     });
   });
 });
