@@ -22,7 +22,7 @@ export const JobSchema = z.object({
   /**
    * Reference ID for grouping jobs. This is the ID of the user, the file, ...
    */
-  referenceId: z.string().optional(),
+  referenceId: z.string().nullable().optional(),
 
   /**
    * Type of job, used to match with a job handler.
