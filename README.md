@@ -188,3 +188,16 @@ pnpm test:coverage
 # Lint code
 pnpm lint
 ```
+
+### Adding a new release
+
+```bash
+# Add a new changeset
+changeset
+
+# Create new versions of packages
+changeset version
+
+# Push the changes to the repo
+git push
+```

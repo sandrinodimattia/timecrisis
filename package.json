@@ -22,7 +22,8 @@
     "test": "turbo test",
     "test:coverage": "turbo test:coverage",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "prepare": "husky"
+    "prepare": "husky",
+    "publish-packages": "changeset publish"
   },
   "packageManager": "pnpm@8.14.1",
   "devDependencies": {
