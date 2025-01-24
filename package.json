@@ -1,7 +1,6 @@
 {
   "name": "timecrisis-monorepo",
   "private": true,
-  "version": "0.1.0",
   "author": "Sandrino Di Mattia",
   "license": "MIT",
   "description": "A TypeScript library for job scheduling and management",
