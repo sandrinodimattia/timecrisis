@@ -17,13 +17,13 @@ import {
   SchedulerError,
   SchedulerMetrics,
   SchedulerOptions,
-} from './types';
-import { LeaderElection } from '../leader';
-import { parseDuration } from '../lib/duration';
-import { EmptyLogger, Logger } from '../logger';
-import { Job, JobRun } from '../storage/schemas';
-import { JobNotFoundError, JobStorage } from '../storage/types';
-import { ExpiredJobsTask, PendingJobsTask, ScheduledJobsTask } from '../tasks';
+} from './types.js';
+import { LeaderElection } from '../leader/index.js';
+import { parseDuration } from '../lib/duration.js';
+import { EmptyLogger, Logger } from '../logger/index.js';
+import { Job, JobRun } from '../storage/schemas/index.js';
+import { JobNotFoundError, JobStorage } from '../storage/types.js';
+import { ExpiredJobsTask, PendingJobsTask, ScheduledJobsTask } from '../tasks/index.js';
 
 export class JobScheduler {
   private node: string;

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { MockJobStorage } from './index';
+import { MockJobStorage } from './index.js';
 
 describe('MockJobStorage', () => {
   let storage: MockJobStorage;

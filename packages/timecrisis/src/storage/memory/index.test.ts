@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { Job } from '../schemas';
-import { JobNotFoundError } from '../types';
-import { InMemoryJobStorage } from './index';
+import { Job } from '../schemas/index.js';
+import { JobNotFoundError } from '../types.js';
+import { InMemoryJobStorage } from './index.js';
 
 describe('InMemoryJobStorage', () => {
   let storage: InMemoryJobStorage;

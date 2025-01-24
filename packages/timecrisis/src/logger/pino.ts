@@ -1,5 +1,5 @@
-import pino from 'pino';
-import { Logger } from './index';
+import { pino } from 'pino';
+import { Logger } from './index.js';
 
 export interface PinoLoggerOptions {
   /**

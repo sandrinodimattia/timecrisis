@@ -1,9 +1,9 @@
-import { JobStorageMetrics } from './schemas/metrics';
-import { CreateJob, Job, UpdateJob } from './schemas/job';
-import { CreateJobLog, JobLogEntry } from './schemas/job-log';
-import { CreateJobRun, JobRun, UpdateJobRun } from './schemas/job-run';
-import { CreateDeadLetterJob, DeadLetterJob } from './schemas/dead-letter';
-import { CreateScheduledJob, ScheduledJob, UpdateScheduledJob } from './schemas/scheduled-job';
+import { JobStorageMetrics } from './schemas/metrics.js';
+import { CreateJob, Job, UpdateJob } from './schemas/job.js';
+import { CreateJobLog, JobLogEntry } from './schemas/job-log.js';
+import { CreateJobRun, JobRun, UpdateJobRun } from './schemas/job-run.js';
+import { CreateDeadLetterJob, DeadLetterJob } from './schemas/dead-letter.js';
+import { CreateScheduledJob, ScheduledJob, UpdateScheduledJob } from './schemas/scheduled-job.js';
 
 interface CleanupOptions {
   /**

@@ -1,11 +1,11 @@
 import { z } from 'zod';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { EmptyLogger } from '../logger';
-import { Job } from '../storage/schemas';
-import { MockJobStorage } from '../storage/mock';
-import { PendingJobsTask } from './pending-jobs';
-import { JobDefinition } from '../scheduler/types';
+import { EmptyLogger } from '../logger/index.js';
+import { Job } from '../storage/schemas/index.js';
+import { PendingJobsTask } from './pending-jobs.js';
+import { JobDefinition } from '../scheduler/types.js';
+import { MockJobStorage } from '../storage/mock/index.js';
 
 describe('PendingJobsTask', () => {
   let storage: MockJobStorage;

@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-import { Logger } from '../logger';
-import { JobStorage } from '../storage/types';
-import { Job, JobStorageMetrics } from '../storage/schemas';
+import { Logger } from '../logger/index.js';
+import { JobStorage } from '../storage/types.js';
+import { Job, JobStorageMetrics } from '../storage/schemas/index.js';
 
 /**
  * Options for configuring the job scheduler.

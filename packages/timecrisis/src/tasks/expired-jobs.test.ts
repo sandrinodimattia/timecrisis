@@ -1,10 +1,10 @@
 import { afterEach } from 'node:test';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { EmptyLogger } from '../logger';
-import { LeaderElection } from '../leader';
-import { MockJobStorage } from '../storage/mock';
-import { ExpiredJobsTask } from './expired-jobs';
+import { EmptyLogger } from '../logger/index.js';
+import { LeaderElection } from '../leader/index.js';
+import { MockJobStorage } from '../storage/mock/index.js';
+import { ExpiredJobsTask } from './expired-jobs.js';
 
 // Mock leader election
 const createMockLeaderElection = (isLeader: boolean = true): LeaderElection => {

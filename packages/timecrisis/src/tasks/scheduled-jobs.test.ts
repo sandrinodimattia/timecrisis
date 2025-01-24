@@ -1,10 +1,10 @@
 import cronParser from 'cron-parser';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { EmptyLogger } from '../logger';
-import { MockJobStorage } from '../storage/mock';
-import { ScheduledJob } from '../storage/schemas';
-import { ScheduledJobsTask } from './scheduled-jobs';
+import { EmptyLogger } from '../logger/index.js';
+import { MockJobStorage } from '../storage/mock/index.js';
+import { ScheduledJob } from '../storage/schemas/index.js';
+import { ScheduledJobsTask } from './scheduled-jobs.js';
 
 describe('ScheduledJobsTask', () => {
   let storage: MockJobStorage;

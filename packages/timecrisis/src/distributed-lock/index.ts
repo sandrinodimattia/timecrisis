@@ -1,4 +1,4 @@
-import { JobStorage } from '../storage/types';
+import { JobStorage } from '../storage/types.js';
 
 export class DistributedLockError extends Error {
   constructor(message: string) {

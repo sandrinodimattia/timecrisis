@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { LeaderElection } from './index';
-import { MockJobStorage } from '../storage/mock';
-import { DistributedLockError } from '../distributed-lock';
+import { LeaderElection } from './index.js';
+import { MockJobStorage } from '../storage/mock/index.js';
+import { DistributedLockError } from '../distributed-lock/index.js';
 
 describe('LeaderElection', () => {
   const node = 'test-node';

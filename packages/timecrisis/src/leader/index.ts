@@ -1,5 +1,5 @@
-import { JobStorage } from '../storage/types';
-import { DistributedLock } from '../distributed-lock';
+import { JobStorage } from '../storage/types.js';
+import { DistributedLock } from '../distributed-lock/index.js';
 
 /**
  * Options for creating a LeaderElection instance.

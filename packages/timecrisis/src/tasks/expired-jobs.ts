@@ -1,6 +1,6 @@
-import { Logger } from '../logger';
-import { LeaderElection } from '../leader';
-import { JobStorage } from '../storage/types';
+import { Logger } from '../logger/index.js';
+import { JobStorage } from '../storage/types.js';
+import { LeaderElection } from '../leader/index.js';
 
 export class ExpiredJobsTask {
   private storage: JobStorage;

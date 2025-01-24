@@ -26,14 +26,14 @@ import {
   UpdateJobSchema,
   UpdateScheduledJob,
   UpdateScheduledJobSchema,
-} from '../schemas';
+} from '../schemas/index.js';
 
 import {
   JobStorage,
   JobNotFoundError,
   JobRunNotFoundError,
   ScheduledJobNotFoundError,
-} from '../types';
+} from '../types.js';
 
 /**
  * In-memory storage adapter that implements the JobStorage interface.

@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
-import { MockJobStorage } from '../storage/mock';
-import { InMemoryJobStorage } from '../storage/memory';
-import { DistributedLock, DistributedLockError } from './index';
+import { MockJobStorage } from '../storage/mock/index.js';
+import { InMemoryJobStorage } from '../storage/memory/index.js';
+import { DistributedLock, DistributedLockError } from './index.js';
 
 describe('DistributedLock', () => {
   describe('with MemoryJobStorage', () => {

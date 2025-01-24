@@ -1,10 +1,10 @@
 import { z } from 'zod';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
-import { JobScheduler } from './index';
-import { EmptyLogger } from '../logger';
-import { InMemoryJobStorage } from '../storage/memory';
-import { JobDefinitionNotFoundError, JobAlreadyRegisteredError } from './types';
+import { JobScheduler } from './index.js';
+import { EmptyLogger } from '../logger/index.js';
+import { InMemoryJobStorage } from '../storage/memory/index.js';
+import { JobDefinitionNotFoundError, JobAlreadyRegisteredError } from './types.js';
 
 describe('JobScheduler', () => {
   let scheduler: JobScheduler;

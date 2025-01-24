@@ -1,9 +1,9 @@
 import * as cronParser from 'cron-parser';
 
-import { JobStorage } from '../storage/types';
-import { parseDuration } from '../lib/duration';
-import { ScheduledJob } from '../storage/schemas';
-import { Logger, logger as defaultLogger } from '../logger';
+import { JobStorage } from '../storage/types.js';
+import { parseDuration } from '../lib/duration.js';
+import { ScheduledJob } from '../storage/schemas/index.js';
+import { Logger, logger as defaultLogger } from '../logger/index.js';
 
 export interface ScheduledJobsConfig {
   /**

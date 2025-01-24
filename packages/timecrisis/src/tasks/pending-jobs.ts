@@ -1,7 +1,7 @@
-import { Logger } from '../logger';
-import { Job } from '../storage/schemas';
-import { JobStorage } from '../storage/types';
-import { JobContext, JobDefinition, JobDefinitionNotFoundError } from '../scheduler/types';
+import { Job } from '../storage/schemas/index.js';
+import { Logger } from '../logger/index.js';
+import { JobStorage } from '../storage/types.js';
+import { JobContext, JobDefinition, JobDefinitionNotFoundError } from '../scheduler/types.js';
 
 export interface PendingJobsConfig {
   /**

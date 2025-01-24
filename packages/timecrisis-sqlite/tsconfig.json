@@ -47,5 +47,5 @@
   // Specify files to include in compilation
   "include": ["src/**/*.ts"],
   // Specify files to exclude from compilation
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist"]
 }
