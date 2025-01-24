@@ -14,7 +14,11 @@
       ]
     },
     "typecheck": {},
-    "lint": {},
+    "lint": {
+      "dependsOn": [
+        "typecheck"
+      ]
+    },
     "dev": {
       "cache": false,
       "persistent": true
