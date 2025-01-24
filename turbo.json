@@ -13,10 +13,15 @@
         "dist/**"
       ]
     },
-    "typecheck": {},
+    "typecheck": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
     "lint": {
       "dependsOn": [
-        "typecheck"
+        "typecheck",
+        "^build"
       ]
     },
     "dev": {
