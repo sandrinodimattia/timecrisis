@@ -1,4 +1,4 @@
-# Time Crisis SQLite
+# Time Crisis SQLite Storage Adapter
 
 [![npm version](https://badge.fury.io/js/timecrisis-sqlite.svg)](https://badge.fury.io/js/timecrisis-sqlite)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
