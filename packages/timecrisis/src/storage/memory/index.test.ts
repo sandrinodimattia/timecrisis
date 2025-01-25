@@ -154,6 +154,75 @@ describe('InMemoryJobStorage', () => {
       const allJobs = await storage.listJobs({ runAtBefore: futureTime });
       expect(allJobs).toHaveLength(3);
     });
+
+    describe('updateJob', () => {
+      test('should clear lockedBy when unlocking a job', async () => {
+        const jobId = await storage.createJob({
+          type: 'test',
+          data: {},
+          runAt: new Date(),
+          maxRetries: 3,
+          attempts: 0,
+          status: 'pending',
+        });
+
+        // First lock the job
+        await storage.updateJob(jobId, {
+          lockedAt: new Date(),
+          lockedBy: 'worker-1',
+        });
+
+        // Now unlock it
+        await storage.updateJob(jobId, {
+          lockedAt: null,
+        });
+
+        const job = await storage.getJob(jobId);
+        expect(job?.lockedBy).toBeNull();
+      });
+    });
+
+    describe('listJobs', () => {
+      test('should filter jobs by lockedBy', async () => {
+        const jobId1 = await storage.createJob({
+          type: 'test',
+          data: {},
+          runAt: new Date(),
+          maxRetries: 3,
+          attempts: 0,
+          status: 'pending',
+        });
+
+        const jobId2 = await storage.createJob({
+          type: 'test',
+          data: {},
+          runAt: new Date(),
+          maxRetries: 3,
+          attempts: 0,
+          status: 'pending',
+        });
+
+        // Lock job1 with worker1
+        await storage.updateJob(jobId1, {
+          lockedAt: new Date(),
+          lockedBy: 'worker-1',
+        });
+
+        // Lock job2 with worker2
+        await storage.updateJob(jobId2, {
+          lockedAt: new Date(),
+          lockedBy: 'worker-2',
+        });
+
+        const worker1Jobs = await storage.listJobs({ lockedBy: 'worker-1' });
+        expect(worker1Jobs).toHaveLength(1);
+        expect(worker1Jobs[0].id).toBe(jobId1);
+
+        const worker2Jobs = await storage.listJobs({ lockedBy: 'worker-2' });
+        expect(worker2Jobs).toHaveLength(1);
+        expect(worker2Jobs[0].id).toBe(jobId2);
+      });
+    });
   });
 
   describe('Metrics', () => {

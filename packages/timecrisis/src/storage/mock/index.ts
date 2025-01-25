@@ -196,12 +196,17 @@ export class MockJobStorage implements JobStorage {
     // Parse and validate the updates
     const validUpdates = UpdateJobSchema.parse(updates);
 
-    // Create the updated job object
+    // Create and validate the updated job
     const updatedJob = JobSchema.parse({
       ...job,
       ...validUpdates,
       updatedAt: new Date(),
     });
+
+    // If we're unlocking the job, also clear the lockedBy
+    if (validUpdates.lockedAt === null) {
+      updatedJob.lockedBy = null;
+    }
 
     this.jobs.set(id, updatedJob);
   }
@@ -216,6 +221,7 @@ export class MockJobStorage implements JobStorage {
     type?: string;
     referenceId?: string;
     lockedBefore?: Date;
+    lockedBy?: string;
     runAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]> {
@@ -231,6 +237,10 @@ export class MockJobStorage implements JobStorage {
 
     if (query?.referenceId) {
       jobs = jobs.filter((job) => job.referenceId === query.referenceId);
+    }
+
+    if (query?.lockedBy) {
+      jobs = jobs.filter((job) => job.lockedBy === query.lockedBy);
     }
 
     if (query?.lockedBefore) {

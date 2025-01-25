@@ -100,11 +100,32 @@ export class DeadWorkersTask {
       // Remove each inactive worker
       for (const worker of inactiveWorkers) {
         try {
+          // Find all jobs locked by this worker
+          const lockedJobs = await this.cfg.storage.listJobs({
+            lockedBy: worker.id,
+          });
+
+          // Update locked jobs to be unlocked
+          for (const job of lockedJobs) {
+            await this.cfg.storage.updateJob(job.id, {
+              lockedAt: null,
+              lockedBy: null,
+            });
+
+            this.cfg.logger.info(`Unlocked job previously held by inactive worker`, {
+              job_id: job.id,
+              worker_id: worker.id,
+              worker_name: worker.name,
+            });
+          }
+
+          // Now remove the worker
           await this.cfg.storage.deleteWorker(worker.id);
           this.cfg.logger.info(`Removed inactive worker`, {
             worker_id: worker.id,
             worker_name: worker.name,
             last_heartbeat: worker.last_heartbeat?.toISOString(),
+            locked_jobs_cleaned: lockedJobs.length,
           });
         } catch (err) {
           this.cfg.logger.error(`Failed to remove inactive worker`, {

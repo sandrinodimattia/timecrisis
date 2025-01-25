@@ -128,13 +128,14 @@ export class LeaderElection {
    * then periodically attempts to renew (acquire) the lock again.
    */
   async start(): Promise<void> {
+    // Initial attempt.
+    await this.tryBecomeLeader();
+
+    // Clear any existing interval.
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = undefined;
     }
-
-    // Initial attempt
-    await this.tryBecomeLeader();
 
     // Then schedule periodic renewals, but only if we're the leader
     const interval = Math.floor(this.opts.lockTTL / 2);

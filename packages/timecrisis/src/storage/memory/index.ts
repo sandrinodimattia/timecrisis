@@ -304,6 +304,11 @@ export class InMemoryJobStorage implements JobStorage {
       updatedAt: new Date(),
     });
 
+    // If we're unlocking the job, also clear the lockedBy
+    if (validUpdates.lockedAt === null) {
+      updatedJob.lockedBy = null;
+    }
+
     this.jobs.set(id, updatedJob);
   }
 
@@ -467,6 +472,7 @@ export class InMemoryJobStorage implements JobStorage {
     type?: string;
     referenceId?: string;
     lockedBefore?: Date;
+    lockedBy?: string;
     runAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]> {
@@ -482,6 +488,10 @@ export class InMemoryJobStorage implements JobStorage {
 
     if (filter?.referenceId) {
       result = result.filter((job) => job.referenceId === filter.referenceId);
+    }
+
+    if (filter?.lockedBy) {
+      result = result.filter((job) => job.lockedBy === filter.lockedBy);
     }
 
     if (filter?.lockedBefore) {
@@ -681,6 +691,7 @@ export class InMemoryJobStorage implements JobStorage {
       return total;
     }
   }
+
   /**
    * Clean up jobs and related data based on the provided retention periods
    * @param options - Retention periods for jobs, failed jobs, and dead letter jobs

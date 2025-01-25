@@ -91,6 +91,11 @@ export const JobSchema = z.object({
   lockedAt: z.date().nullable().optional(),
 
   /**
+   * ID of the worker that has locked this job
+   */
+  lockedBy: z.string().nullable().optional(),
+
+  /**
    * When the job was started.
    */
   startedAt: z.date().nullable().optional(),

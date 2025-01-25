@@ -69,6 +69,7 @@ export interface JobStorage {
    * @param filter.type - Filter by job type
    * @param filter.referenceId - Filter by reference ID
    * @param filter.lockedBefore - Filter by lock date
+   * @param filter.lockedBy - Filter by worker ID that has locked the job
    * @param filter.runAtBefore - Filter by run date
    * @param filter.limit - Maximum number of jobs to return
    * @returns Promise that resolves with an array of matching jobs
@@ -78,6 +79,7 @@ export interface JobStorage {
     type?: string;
     referenceId?: string;
     lockedBefore?: Date;
+    lockedBy?: string;
     runAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]>;
