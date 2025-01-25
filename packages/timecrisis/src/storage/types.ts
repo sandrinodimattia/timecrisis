@@ -3,6 +3,7 @@ import { CreateJob, Job, UpdateJob } from './schemas/job.js';
 import { CreateJobLog, JobLogEntry } from './schemas/job-log.js';
 import { CreateJobRun, JobRun, UpdateJobRun } from './schemas/job-run.js';
 import { CreateDeadLetterJob, DeadLetterJob } from './schemas/dead-letter.js';
+import { Worker, RegisterWorker, UpdateWorkerHeartbeat } from './schemas/worker.js';
 import { CreateScheduledJob, ScheduledJob, UpdateScheduledJob } from './schemas/scheduled-job.js';
 
 interface CleanupOptions {
@@ -163,6 +164,49 @@ export interface JobStorage {
   listDeadLetterJobs(): Promise<DeadLetterJob[]>;
 
   /**
+   * Register a new worker instance.
+   * @param worker - Worker registration data
+   * @returns Promise that resolves with the ID of the registered worker
+   */
+  registerWorker(worker: RegisterWorker): Promise<string>;
+
+  /**
+   * Update a worker's heartbeat.
+   * @param id - ID of the worker to update
+   * @param heartbeat - Heartbeat update data
+   */
+  updateWorkerHeartbeat(id: string, heartbeat: UpdateWorkerHeartbeat): Promise<void>;
+
+  /**
+   * Get a worker by ID.
+   * @param id - ID of the worker to retrieve
+   * @returns Promise that resolves with the worker data
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   */
+  getWorker(id: string): Promise<Worker | null>;
+
+  /**
+   * Get all workers that haven't sent a heartbeat since the given time.
+   * @param lastHeartbeatBefore - Time threshold for considering workers inactive
+   * @returns Promise that resolves with an array of inactive workers
+   */
+  getInactiveWorkers(lastHeartbeatBefore: Date): Promise<Worker[]>;
+
+  /**
+   * Get all registered workers.
+   * @returns Promise that resolves with an array of all workers
+   */
+  getWorkers(): Promise<Worker[]>;
+
+  /**
+   * Delete a worker by ID.
+   * @param id - ID of the worker to delete
+   * @returns Promise that resolves when the worker is deleted
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   */
+  deleteWorker(id: string): Promise<void>;
+
+  /**
    * Acquire a distributed lock.
    * @param lockId - ID of the lock to acquire
    * @param owner - ID of the owner trying to acquire the lock
@@ -187,6 +231,27 @@ export interface JobStorage {
    * @returns Promise that resolves with true if lock was released, false otherwise
    */
   releaseLock(lockId: string, owner: string): Promise<boolean>;
+
+  /**
+   * Acquire a concurrency slot for a specific job type
+   * @param jobType - The type of the job
+   * @param maxConcurrent - Maximum allowed concurrent jobs for this type
+   * @returns True if the slot was acquired, false otherwise
+   */
+  acquireConcurrencySlot(jobType: string, maxConcurrent: number): Promise<boolean>;
+
+  /**
+   * Release a concurrency slot for a specific job type
+   * @param jobType - The type of the job
+   */
+  releaseConcurrencySlot(jobType: string): Promise<void>;
+
+  /**
+   * Get the current running count for a specific job type or total across all types
+   * @param jobType - Optional, the type of the job. If not provided, returns total across all types
+   * @returns Number of currently running jobs
+   */
+  getRunningCount(jobType?: string): Promise<number>;
 
   /**
    * Clean up old job data.
@@ -246,5 +311,14 @@ export class JobRunNotFoundError extends JobStorageError {
 export class ScheduledJobNotFoundError extends JobStorageError {
   constructor(id: string) {
     super(`ScheduledJob with id ${id} not found`);
+  }
+}
+
+/**
+ * Thrown when a worker is not found.
+ */
+export class WorkerNotFoundError extends JobStorageError {
+  constructor(id: string) {
+    super(`Worker with id ${id} not found`);
   }
 }

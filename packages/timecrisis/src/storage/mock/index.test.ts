@@ -1,12 +1,23 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { MockJobStorage } from './index.js';
+import { RegisterWorker } from '../schemas/index.js';
+import { WorkerNotFoundError } from '../types.js';
 
 describe('MockJobStorage', () => {
   let storage: MockJobStorage;
+  const now = new Date('2025-01-23T00:00:00.000Z');
 
   beforeEach(() => {
     storage = new MockJobStorage();
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => {
+    vi.resetAllMocks();
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   describe('Job Management', () => {
@@ -421,6 +432,169 @@ describe('MockJobStorage', () => {
       expect(deadLetterJobs[0].jobId).toBe(jobId);
       expect(deadLetterJobs[0].reason).toBe('Test failure');
       expect(deadLetterJobs[0].data).toEqual({ foo: 'bar' });
+    });
+  });
+
+  describe('Worker Management', () => {
+    describe('workers', () => {
+      it('should register a worker', async () => {
+        const workerId = await storage.registerWorker({
+          name: 'test-worker',
+        });
+
+        expect(workerId).toBeDefined();
+        const worker = await storage.getWorker(workerId);
+        expect(worker).toBeDefined();
+        expect(worker?.name).toBe('test-worker');
+      });
+
+      it('should delete a worker', async () => {
+        // Register a worker
+        const workerId = await storage.registerWorker({
+          name: 'test-worker',
+        });
+
+        // Verify it exists
+        const worker = await storage.getWorker(workerId);
+        expect(worker).toBeDefined();
+
+        // Delete the worker
+        await storage.deleteWorker(workerId);
+
+        // Verify it's gone
+        await expect(storage.getWorker(workerId)).resolves.toBeNull();
+      });
+
+      it('should throw WorkerNotFoundError when deleting non-existent worker', async () => {
+        await expect(storage.deleteWorker('non-existent')).rejects.toThrow(WorkerNotFoundError);
+      });
+
+      it('should update worker heartbeat', async () => {
+        const workerId = await storage.registerWorker({ name: 'test-worker' });
+        const newHeartbeat = new Date('2025-01-23T01:00:00.000Z');
+
+        await storage.updateWorkerHeartbeat(workerId, { last_heartbeat: newHeartbeat });
+        expect(storage.updateWorkerHeartbeat).toHaveBeenCalledWith(workerId, {
+          last_heartbeat: newHeartbeat,
+        });
+
+        const worker = await storage.getWorker(workerId);
+        expect(worker?.last_heartbeat).toEqual(newHeartbeat);
+      });
+
+      it('should throw WorkerNotFoundError when updating non-existent worker', async () => {
+        await expect(
+          storage.updateWorkerHeartbeat('non-existent', { last_heartbeat: now })
+        ).rejects.toThrow(WorkerNotFoundError);
+        expect(storage.updateWorkerHeartbeat).toHaveBeenCalledWith('non-existent', {
+          last_heartbeat: now,
+        });
+      });
+
+      it('should get inactive workers', async () => {
+        // Create active worker
+        const activeWorkerId = await storage.registerWorker({ name: 'active-worker' });
+        await storage.updateWorkerHeartbeat(activeWorkerId, { last_heartbeat: now });
+
+        // Create inactive worker
+        const inactiveWorkerId = await storage.registerWorker({ name: 'inactive-worker' });
+        const oldDate = new Date('2025-01-22T23:00:00.000Z'); // 1 hour ago
+        await storage.updateWorkerHeartbeat(inactiveWorkerId, { last_heartbeat: oldDate });
+
+        const lastHeartbeatBefore = new Date('2025-01-22T23:30:00.000Z'); // 30 minutes ago
+        const inactiveWorkers = await storage.getInactiveWorkers(lastHeartbeatBefore);
+        expect(inactiveWorkers).toHaveLength(1);
+        expect(inactiveWorkers[0].id).toBe(inactiveWorkerId);
+        expect(storage.getInactiveWorkers).toHaveBeenCalledWith(lastHeartbeatBefore);
+      });
+
+      it('should get all workers', async () => {
+        await storage.registerWorker({ name: 'worker-1' });
+        await storage.registerWorker({ name: 'worker-2' });
+
+        const workers = await storage.getWorkers();
+        expect(workers).toHaveLength(2);
+        expect(workers.map((w) => w.name).sort()).toEqual(['worker-1', 'worker-2']);
+        expect(storage.getWorkers).toHaveBeenCalled();
+      });
+
+      it('should clear workers on close', async () => {
+        await storage.registerWorker({ name: 'worker-1' });
+        await storage.close();
+
+        const workers = await storage.getWorkers();
+        expect(workers).toHaveLength(0);
+      });
+
+      it('should validate worker registration data', async () => {
+        // @ts-expect-error Testing invalid data
+        await expect(storage.registerWorker({})).rejects.toThrow();
+        // @ts-expect-error Testing invalid data
+        await expect(storage.registerWorker({ name: 123 })).rejects.toThrow();
+      });
+
+      it('should validate worker heartbeat data', async () => {
+        const workerId = await storage.registerWorker({ name: 'test-worker' });
+
+        // @ts-expect-error Testing invalid data
+        await expect(storage.updateWorkerHeartbeat(workerId, {})).rejects.toThrow();
+        await expect(
+          // @ts-expect-error Testing invalid data
+          storage.updateWorkerHeartbeat(workerId, { last_heartbeat: 'invalid' })
+        ).rejects.toThrow();
+      });
+    });
+  });
+
+  describe('Concurrency Management', () => {
+    it('should acquire and release concurrency slots', async () => {
+      const jobType = 'test-job';
+      const maxConcurrent = 2;
+
+      // Acquire first slot
+      const acquired1 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
+      expect(acquired1).toBe(true);
+      expect(await storage.getRunningCount(jobType)).toBe(1);
+
+      // Acquire second slot
+      const acquired2 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
+      expect(acquired2).toBe(true);
+      expect(await storage.getRunningCount(jobType)).toBe(2);
+
+      // Try to acquire third slot (should fail)
+      const acquired3 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
+      expect(acquired3).toBe(false);
+      expect(await storage.getRunningCount(jobType)).toBe(2);
+
+      // Release a slot
+      await storage.releaseConcurrencySlot(jobType);
+      expect(await storage.getRunningCount(jobType)).toBe(1);
+
+      // Should be able to acquire another slot now
+      const acquired4 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
+      expect(acquired4).toBe(true);
+      expect(await storage.getRunningCount(jobType)).toBe(2);
+    });
+
+    it('should get total running count across all job types', async () => {
+      await storage.acquireConcurrencySlot('job-type-1', 2);
+      await storage.acquireConcurrencySlot('job-type-2', 2);
+      await storage.acquireConcurrencySlot('job-type-2', 2);
+
+      expect(await storage.getRunningCount()).toBe(3);
+    });
+
+    it('should not reduce count below zero when releasing slots', async () => {
+      const jobType = 'test-job';
+
+      // Release without acquiring
+      await storage.releaseConcurrencySlot(jobType);
+      expect(await storage.getRunningCount(jobType)).toBe(0);
+
+      // Acquire and release multiple times
+      await storage.releaseConcurrencySlot(jobType);
+      await storage.releaseConcurrencySlot(jobType);
+      expect(await storage.getRunningCount(jobType)).toBe(0);
     });
   });
 });

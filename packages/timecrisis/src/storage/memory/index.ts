@@ -26,6 +26,11 @@ import {
   UpdateJobSchema,
   UpdateScheduledJob,
   UpdateScheduledJobSchema,
+  Worker,
+  RegisterWorker,
+  RegisterWorkerSchema,
+  UpdateWorkerHeartbeat,
+  WorkerSchema,
 } from '../schemas/index.js';
 
 import {
@@ -33,6 +38,7 @@ import {
   JobNotFoundError,
   JobRunNotFoundError,
   ScheduledJobNotFoundError,
+  WorkerNotFoundError,
 } from '../types.js';
 
 /**
@@ -73,6 +79,17 @@ export class InMemoryJobStorage implements JobStorage {
    * Each lock contains the owner's identifier and expiration time
    */
   private locks: Map<string, { owner: string; expiresAt: Date }> = new Map();
+
+  /**
+   * Map of workers
+   */
+  private workers: Map<string, Worker> = new Map();
+
+  /**
+   * Map to track running job counts per job type
+   * Keyed by job type, the value is the current number of running jobs of that type
+   */
+  private runningJobCounts: Map<string, number> = new Map();
 
   /**
    * Flag to track if an operation is currently in progress
@@ -138,6 +155,99 @@ export class InMemoryJobStorage implements JobStorage {
         }
       }
     }
+  }
+
+  /**
+   * Register a new worker instance in the system
+   * @param worker - Worker registration data containing the worker name
+   * @returns Promise that resolves with the ID of the registered worker
+   * @throws ZodError if the worker registration data is invalid
+   */
+  async registerWorker(worker: RegisterWorker): Promise<string> {
+    const id = randomUUID();
+    const now = new Date();
+
+    // Validate the registration data
+    const validWorker = RegisterWorkerSchema.parse(worker);
+
+    // Create the worker instance with validated data
+    const workerInstance = WorkerSchema.parse({
+      ...validWorker,
+      id,
+      first_seen: now,
+      last_heartbeat: now,
+    });
+
+    this.workers.set(id, workerInstance);
+    return id;
+  }
+
+  /**
+   * Update a worker's heartbeat timestamp
+   * @param id - ID of the worker to update
+   * @param heartbeat - Heartbeat data containing the new timestamp
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   * @throws ZodError if the heartbeat data is invalid
+   */
+  async updateWorkerHeartbeat(id: string, heartbeat: UpdateWorkerHeartbeat): Promise<void> {
+    const worker = this.workers.get(id);
+    if (!worker) {
+      throw new WorkerNotFoundError(id);
+    }
+
+    // Update the worker with the new heartbeat
+    const updatedWorker = WorkerSchema.parse({
+      ...worker,
+      last_heartbeat: heartbeat.last_heartbeat,
+    });
+
+    this.workers.set(id, updatedWorker);
+  }
+
+  /**
+   * Get a worker by its ID
+   * @param id - ID of the worker to retrieve
+   * @returns Promise that resolves with the worker data
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   */
+  async getWorker(id: string): Promise<Worker | null> {
+    return this.workers.get(id) || null;
+  }
+
+  /**
+   * Get all workers that haven't sent a heartbeat since the specified time
+   * @param lastHeartbeatBefore - Time threshold for considering workers inactive
+   * @returns Promise that resolves with an array of inactive workers
+   */
+  async getInactiveWorkers(lastHeartbeatBefore: Date): Promise<Worker[]> {
+    const inactiveWorkers = Array.from(this.workers.values()).filter(
+      (worker) => worker.last_heartbeat < lastHeartbeatBefore
+    );
+
+    // Validate all inactive workers before returning
+    return inactiveWorkers;
+  }
+
+  /**
+   * Get all registered workers in the system
+   * @returns Promise that resolves with an array of all workers
+   */
+  async getWorkers(): Promise<Worker[]> {
+    return Array.from(this.workers.values());
+  }
+
+  /**
+   * Delete a worker by its ID
+   * @param id - ID of the worker to delete
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   */
+  async deleteWorker(id: string): Promise<void> {
+    const worker = await this.getWorker(id);
+    if (!worker) {
+      throw new WorkerNotFoundError(id);
+    }
+
+    this.workers.delete(id);
   }
 
   /**
@@ -524,6 +634,54 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
+   * Acquire a concurrency slot for a specific job type
+   * @param jobType - The type of the job
+   * @param maxConcurrent - Maximum allowed concurrent jobs for this type
+   * @returns True if the slot was acquired, false otherwise
+   */
+  async acquireConcurrencySlot(jobType: string, maxConcurrent: number): Promise<boolean> {
+    return this.transaction(async () => {
+      const currentCount = this.runningJobCounts.get(jobType) || 0;
+      if (currentCount >= maxConcurrent) {
+        return false;
+      }
+
+      this.runningJobCounts.set(jobType, currentCount + 1);
+      return true;
+    });
+  }
+
+  /**
+   * Release a concurrency slot for a specific job type
+   * @param jobType - The type of the job
+   */
+  async releaseConcurrencySlot(jobType: string): Promise<void> {
+    return this.transaction(async () => {
+      const currentCount = this.runningJobCounts.get(jobType) || 0;
+      if (currentCount > 0) {
+        this.runningJobCounts.set(jobType, currentCount - 1);
+      }
+    });
+  }
+
+  /**
+   * Get the current running count for a specific job type
+   * @param jobType - The type of the job
+   * @returns Number of currently running jobs of the specified type
+   */
+  async getRunningCount(jobType?: string): Promise<number> {
+    if (jobType) {
+      return this.runningJobCounts.get(jobType) || 0;
+    } else {
+      // Return the total running jobs across all types
+      let total = 0;
+      for (const count of this.runningJobCounts.values()) {
+        total += count;
+      }
+      return total;
+    }
+  }
+  /**
    * Clean up jobs and related data based on the provided retention periods
    * @param options - Retention periods for jobs, failed jobs, and dead letter jobs
    */
@@ -532,52 +690,50 @@ export class InMemoryJobStorage implements JobStorage {
     failedJobRetention: number;
     deadLetterRetention: number;
   }): Promise<void> {
-    return this.transaction(async () => {
-      const now = new Date();
+    const now = new Date();
 
-      // Validate and normalize retention periods
-      const retention = (days: number): number => days * 24 * 60 * 60 * 1000; // Convert days to milliseconds
-      const completedThreshold = new Date(now.getTime() - retention(options.jobRetention));
-      const failedThreshold = new Date(now.getTime() - retention(options.failedJobRetention));
-      const deadLetterThreshold = new Date(now.getTime() - retention(options.deadLetterRetention));
+    // Validate and normalize retention periods
+    const retention = (days: number): number => days * 24 * 60 * 60 * 1000; // Convert days to milliseconds
+    const completedThreshold = new Date(now.getTime() - retention(options.jobRetention));
+    const failedThreshold = new Date(now.getTime() - retention(options.failedJobRetention));
+    const deadLetterThreshold = new Date(now.getTime() - retention(options.deadLetterRetention));
 
-      // Process jobs in batches
-      const batchSize = 1000;
-      let processedCount = 0;
+    // Process jobs in batches
+    const batchSize = 1000;
+    let processedCount = 0;
 
-      // Clean up jobs and related data
-      for (const [id, job] of this.jobs.entries()) {
-        processedCount++;
+    // Clean up jobs and related data
+    for (const [id, job] of this.jobs.entries()) {
+      processedCount++;
 
-        if (
-          (job.status === 'completed' && job.updatedAt && job.updatedAt < completedThreshold) ||
-          (job.status === 'failed' && job.updatedAt && job.updatedAt < failedThreshold)
-        ) {
-          await this.deleteJobAndRelatedData(id);
-        }
-
-        // Yield to event loop periodically to prevent blocking
-        if (processedCount % batchSize === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+      if (
+        (job.status === 'completed' && job.updatedAt && job.updatedAt < completedThreshold) ||
+        (job.status === 'failed' && job.updatedAt && job.updatedAt < failedThreshold)
+      ) {
+        await this.deleteJobAndRelatedData(id);
       }
 
-      // Clean up dead letter jobs
-      const deadLetterJobsToKeep = [];
-      for (const job of this.deadLetterJobs) {
-        if (job.failedAt >= deadLetterThreshold) {
-          deadLetterJobsToKeep.push(job);
-        }
+      // Yield to event loop periodically to prevent blocking
+      if (processedCount % batchSize === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
-      this.deadLetterJobs = deadLetterJobsToKeep;
+    }
 
-      // Clean up expired locks
-      for (const [lockId, lock] of this.locks.entries()) {
-        if (lock.expiresAt <= now) {
-          this.locks.delete(lockId);
-        }
+    // Clean up dead letter jobs
+    const deadLetterJobsToKeep = [];
+    for (const job of this.deadLetterJobs) {
+      if (job.failedAt >= deadLetterThreshold) {
+        deadLetterJobsToKeep.push(job);
       }
-    });
+    }
+    this.deadLetterJobs = deadLetterJobsToKeep;
+
+    // Clean up expired locks
+    for (const [lockId, lock] of this.locks.entries()) {
+      if (lock.expiresAt <= now) {
+        this.locks.delete(lockId);
+      }
+    }
   }
 
   /**
@@ -638,7 +794,7 @@ export class InMemoryJobStorage implements JobStorage {
 
   /**
    * Close the storage provider and clean up all data
-   * This will remove all jobs, runs, logs, and locks from memory
+   * This will remove all jobs, runs, logs, locks, and workers from memory
    */
   async close(): Promise<void> {
     this.deadLetterJobs = [];
@@ -647,6 +803,8 @@ export class InMemoryJobStorage implements JobStorage {
     this.jobLogs.clear();
     this.scheduledJobs.clear();
     this.locks.clear();
+    this.workers.clear();
+    this.runningJobCounts.clear();
     this.operationQueue = [];
     this.operationInProgress = false;
   }

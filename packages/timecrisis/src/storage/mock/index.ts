@@ -20,6 +20,8 @@ import {
   JobRunSchema,
   JobSchema,
   JobStorageMetrics,
+  RegisterWorker,
+  RegisterWorkerSchema,
   ScheduledJob,
   ScheduledJobSchema,
   UpdateJob,
@@ -27,6 +29,10 @@ import {
   UpdateJobSchema,
   UpdateScheduledJob,
   UpdateScheduledJobSchema,
+  UpdateWorkerHeartbeat,
+  UpdateWorkerHeartbeatSchema,
+  Worker,
+  WorkerSchema,
 } from '../schemas/index.js';
 
 import {
@@ -35,6 +41,8 @@ import {
   JobRunNotFoundError,
   ScheduledJobNotFoundError,
 } from '../types.js';
+
+import { WorkerNotFoundError } from '../types.js';
 
 export interface MockStorageOptions {
   shouldFailAcquire?: boolean;
@@ -50,6 +58,8 @@ export class MockJobStorage implements JobStorage {
   private jobLogs: Map<string, JobLogEntry[]> = new Map();
   private scheduledJobs: Map<string, ScheduledJob> = new Map();
   private deadLetterJobs: Map<string, DeadLetterJob> = new Map();
+  private workers: Map<string, Worker> = new Map();
+  private runningJobCounts: Map<string, number> = new Map();
 
   constructor(private options: MockStorageOptions = {}) {
     this.init = vi.fn(this.init.bind(this));
@@ -77,6 +87,15 @@ export class MockJobStorage implements JobStorage {
     this.renewLock = vi.fn(this.renewLock.bind(this));
     this.releaseLock = vi.fn(this.releaseLock.bind(this));
     this.simulateOtherLeader = vi.fn(this.simulateOtherLeader.bind(this));
+    this.registerWorker = vi.fn(this.registerWorker.bind(this));
+    this.updateWorkerHeartbeat = vi.fn(this.updateWorkerHeartbeat.bind(this));
+    this.getWorker = vi.fn(this.getWorker.bind(this));
+    this.getInactiveWorkers = vi.fn(this.getInactiveWorkers.bind(this));
+    this.getWorkers = vi.fn(this.getWorkers.bind(this));
+    this.acquireConcurrencySlot = vi.fn(this.acquireConcurrencySlot.bind(this));
+    this.releaseConcurrencySlot = vi.fn(this.releaseConcurrencySlot.bind(this));
+    this.getRunningCount = vi.fn(this.getRunningCount.bind(this));
+    this.deleteWorker = vi.fn(this.deleteWorker.bind(this));
   }
 
   /**
@@ -96,6 +115,8 @@ export class MockJobStorage implements JobStorage {
     this.jobLogs.clear();
     this.scheduledJobs.clear();
     this.deadLetterJobs.clear();
+    this.workers.clear();
+    this.runningJobCounts.clear();
   }
 
   /**
@@ -563,14 +584,151 @@ export class MockJobStorage implements JobStorage {
   }
 
   /**
-   * Close the storage provider and clear all data
+   * Register a new worker instance in the system
+   * Creates a new worker with a unique ID and timestamps for first_seen and last_heartbeat.
+   * @param worker - Worker registration data containing the worker name
+   * @returns Promise resolving to the ID of the registered worker
+   * @throws ZodError if the worker registration data is invalid
    */
-  public async close(): Promise<void> {
-    this.locks.clear();
-    this.jobs.clear();
-    this.jobRuns.clear();
-    this.jobLogs.clear();
-    this.scheduledJobs.clear();
-    this.deadLetterJobs.clear();
+  async registerWorker(worker: RegisterWorker): Promise<string> {
+    const id = randomUUID();
+    const now = new Date();
+
+    // Parse and validate the registration data
+    const validWorker = RegisterWorkerSchema.parse(worker);
+
+    // Create the worker instance with validated data
+    const workerInstance = WorkerSchema.parse({
+      ...validWorker,
+      id,
+      first_seen: now,
+      last_heartbeat: now,
+    });
+
+    this.workers.set(id, workerInstance);
+    return id;
+  }
+
+  /**
+   * Update a worker's heartbeat timestamp
+   * Updates the last_heartbeat field of an existing worker.
+   * @param id - ID of the worker to update
+   * @param heartbeat - Heartbeat data containing the new timestamp
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   * @throws ZodError if the heartbeat data is invalid
+   */
+  async updateWorkerHeartbeat(id: string, heartbeat: UpdateWorkerHeartbeat): Promise<void> {
+    const worker = this.workers.get(id);
+    if (!worker) {
+      throw new WorkerNotFoundError(id);
+    }
+
+    // Parse and validate the heartbeat data
+    const validHeartbeat = UpdateWorkerHeartbeatSchema.parse(heartbeat);
+
+    // Create the updated worker object
+    const updatedWorker = WorkerSchema.parse({
+      ...worker,
+      last_heartbeat: validHeartbeat.last_heartbeat,
+    });
+
+    this.workers.set(id, updatedWorker);
+  }
+
+  /**
+   * Get a worker by its ID
+   * @param id - ID of the worker to retrieve
+   * @returns Promise resolving to the worker data or null if not found
+   */
+  async getWorker(id: string): Promise<Worker | null> {
+    return this.workers.get(id) || null;
+  }
+
+  /**
+   * Get all workers that haven't sent a heartbeat since the specified time
+   * A worker is considered inactive if its last_heartbeat is before the specified time.
+   * @param lastHeartbeatBefore - Time threshold for considering workers inactive
+   * @returns Promise resolving to an array of inactive workers
+   */
+  async getInactiveWorkers(lastHeartbeatBefore: Date): Promise<Worker[]> {
+    return Array.from(this.workers.values()).filter(
+      (worker) => worker.last_heartbeat < lastHeartbeatBefore
+    );
+  }
+
+  /**
+   * Get all registered workers in the system
+   * @returns Promise resolving to an array of all workers
+   */
+  async getWorkers(): Promise<Worker[]> {
+    return Array.from(this.workers.values());
+  }
+
+  /**
+   * Delete a worker by its ID
+   * @param id - ID of the worker to delete
+   * @throws WorkerNotFoundError if the worker doesn't exist
+   */
+  async deleteWorker(id: string): Promise<void> {
+    const worker = await this.getWorker(id);
+    if (!worker) {
+      throw new WorkerNotFoundError(id);
+    }
+
+    this.workers.delete(id);
+  }
+
+  /**
+   * Acquire a concurrency slot for a specific job type
+   * If the current count of running jobs for this type is less than maxConcurrent,
+   * increments the count and returns true. Otherwise, returns false.
+   * @param jobType - The type of job to acquire a slot for
+   * @param maxConcurrent - Maximum number of concurrent jobs allowed for this type
+   * @returns Promise resolving to true if slot was acquired, false otherwise
+   */
+  async acquireConcurrencySlot(jobType: string, maxConcurrent: number): Promise<boolean> {
+    const currentCount = this.runningJobCounts.get(jobType) || 0;
+    if (currentCount >= maxConcurrent) {
+      return false;
+    }
+
+    this.runningJobCounts.set(jobType, currentCount + 1);
+    return true;
+  }
+
+  /**
+   * Release a concurrency slot for a specific job type
+   * Decrements the count of running jobs for this type if greater than zero.
+   * If the count is already zero, this is a no-op.
+   * @param jobType - The type of job to release a slot for
+   */
+  async releaseConcurrencySlot(jobType: string): Promise<void> {
+    const currentCount = this.runningJobCounts.get(jobType) || 0;
+    if (currentCount > 0) {
+      this.runningJobCounts.set(jobType, currentCount - 1);
+    }
+  }
+
+  /**
+   * Get the current count of running jobs
+   * If jobType is provided, returns the count for that specific type.
+   * If jobType is not provided, returns the total count across all types.
+   * @param jobType - Optional, the specific job type to get the count for
+   * @returns Promise resolving to the number of running jobs
+   */
+  async getRunningCount(jobType?: string): Promise<number> {
+    if (jobType) {
+      return this.runningJobCounts.get(jobType) || 0;
+    }
+
+    // Calculate total across all types
+    return Array.from(this.runningJobCounts.values()).reduce((total, count) => total + count, 0);
+  }
+
+  /**
+   * Close the storage provider and clean up all data
+   */
+  async close(): Promise<void> {
+    this.reset();
   }
 }
