@@ -9,6 +9,7 @@ describe('DeadWorkersTask', () => {
   let storage: MockJobStorage;
   let task: DeadWorkersTask;
   let leader: LeaderElection;
+  const now = new Date('2025-01-23T00:00:00.000Z');
 
   beforeEach(() => {
     storage = new MockJobStorage();
@@ -30,6 +31,7 @@ describe('DeadWorkersTask', () => {
     });
 
     vi.useFakeTimers();
+    vi.setSystemTime(now);
   });
 
   afterEach(() => {
@@ -248,5 +250,157 @@ describe('DeadWorkersTask', () => {
     const job = await storage.getJob(jobId);
     expect(job?.lockedAt).toEqual(lockTime);
     expect(job?.lockedBy).toBe(workerId);
+  });
+
+  it('should handle jobs with retries remaining when worker becomes inactive', async () => {
+    // Register an inactive worker
+    const workerId = await storage.registerWorker({
+      name: 'inactive-worker',
+    });
+
+    // Create a job with retries remaining
+    const jobId = await storage.createJob({
+      type: 'test',
+      data: {},
+      status: 'running',
+      attempts: 1,
+      maxRetries: 3,
+      failCount: 0,
+      lockedAt: new Date(now.getTime() - 400000),
+      lockedBy: workerId,
+    });
+
+    // Create a running job run
+    await storage.createJobRun({
+      jobId,
+      status: 'running',
+      startedAt: new Date(now.getTime() - 400000),
+      attempt: 1,
+    });
+
+    // Update heartbeat to old timestamp
+    const oldDate = new Date('2025-01-22T23:00:00.000Z');
+    await storage.updateWorkerHeartbeat(workerId, {
+      last_heartbeat: oldDate,
+    });
+
+    // Execute task
+    await task.execute();
+
+    // Verify worker was removed
+    const worker = await storage.getWorker(workerId);
+    expect(worker).toBeNull();
+
+    // Verify job run was marked as failed
+    const jobRuns = await storage.listJobRuns(jobId);
+    expect(jobRuns.length).toBe(1);
+    const jobRun = jobRuns[0];
+    expect(jobRun?.status).toBe('failed');
+    expect(jobRun?.error).toBe('Worker which was running the task is no longer active');
+    expect(jobRun?.finishedAt).toEqual(now);
+
+    // Verify job was reset for retry
+    const job = await storage.getJob(jobId);
+    expect(job?.status).toBe('pending');
+    expect(job?.lockedAt).toBeNull();
+    expect(job?.lockedBy).toBeNull();
+    expect(job?.failCount).toBe(1);
+    expect(job?.failReason).toBe('Worker which was running the task is no longer active');
+  });
+
+  it('should handle jobs with no retries remaining when worker becomes inactive', async () => {
+    // Register an inactive worker
+    const workerId = await storage.registerWorker({
+      name: 'inactive-worker',
+    });
+
+    // Create a job with no retries remaining
+    const jobId = await storage.createJob({
+      type: 'test',
+      data: {},
+      status: 'running',
+      attempts: 3,
+      maxRetries: 3,
+      failCount: 2,
+      lockedAt: new Date(now.getTime() - 400000),
+      lockedBy: workerId,
+    });
+
+    // Create a running job run
+    await storage.createJobRun({
+      jobId,
+      status: 'running',
+      startedAt: new Date(now.getTime() - 400000),
+      attempt: 3,
+    });
+
+    // Update heartbeat to old timestamp
+    const oldDate = new Date('2025-01-22T23:00:00.000Z');
+    await storage.updateWorkerHeartbeat(workerId, {
+      last_heartbeat: oldDate,
+    });
+
+    // Execute task
+    await task.execute();
+
+    // Verify worker was removed
+    const worker = await storage.getWorker(workerId);
+    expect(worker).toBeNull();
+
+    // Verify job run was marked as failed
+    const jobRuns = await storage.listJobRuns(jobId);
+    expect(jobRuns.length).toBe(1);
+    const jobRun = jobRuns[0];
+    expect(jobRun?.status).toBe('failed');
+    expect(jobRun?.error).toBe('Worker which was running the task is no longer active');
+    expect(jobRun?.finishedAt).toEqual(now);
+
+    // Verify job was marked as failed
+    const job = await storage.getJob(jobId);
+    expect(job?.status).toBe('failed');
+    expect(job?.lockedAt).toBeNull();
+    expect(job?.lockedBy).toBeNull();
+    expect(job?.failCount).toBe(3);
+    expect(job?.failReason).toBe('Worker which was running the task is no longer active');
+  });
+
+  it('should not affect jobs with no current run when worker becomes inactive', async () => {
+    // Register an inactive worker
+    const workerId = await storage.registerWorker({
+      name: 'inactive-worker',
+    });
+
+    // Create a job locked by the worker but with no current run
+    const jobId = await storage.createJob({
+      type: 'test',
+      data: {},
+      status: 'running',
+      attempts: 1,
+      maxRetries: 3,
+      failCount: 0,
+      lockedAt: new Date(now.getTime() - 400000),
+      lockedBy: workerId,
+    });
+
+    // Update heartbeat to old timestamp
+    const oldDate = new Date('2025-01-22T23:00:00.000Z');
+    await storage.updateWorkerHeartbeat(workerId, {
+      last_heartbeat: oldDate,
+    });
+
+    // Execute task
+    await task.execute();
+
+    // Verify worker was removed
+    const worker = await storage.getWorker(workerId);
+    expect(worker).toBeNull();
+
+    // Verify job was reset for retry
+    const job = await storage.getJob(jobId);
+    expect(job?.status).toBe('pending');
+    expect(job?.lockedAt).toBeNull();
+    expect(job?.lockedBy).toBeNull();
+    expect(job?.failCount).toBe(1);
+    expect(job?.failReason).toBe('Worker which was running the task is no longer active');
   });
 });

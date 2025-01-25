@@ -107,16 +107,59 @@ export class DeadWorkersTask {
 
           // Update locked jobs to be unlocked
           for (const job of lockedJobs) {
-            await this.cfg.storage.updateJob(job.id, {
-              lockedAt: null,
-              lockedBy: null,
-            });
+            // Get the current job run
+            const runs = await this.cfg.storage.listJobRuns(job.id);
+            const currentRun = runs.find((r) => r.status === 'running');
 
-            this.cfg.logger.info(`Unlocked job previously held by inactive worker`, {
-              job_id: job.id,
-              worker_id: worker.id,
-              worker_name: worker.name,
-            });
+            // Update the job run if it exists
+            if (currentRun) {
+              await this.cfg.storage.updateJobRun(currentRun.id, {
+                status: 'failed',
+                error: 'Worker which was running the task is no longer active',
+                finishedAt: now,
+              });
+
+              this.cfg.logger.debug('Setting job run to failed due to dead worker', {
+                jobId: job.id,
+                runId: currentRun.id,
+                status: 'failed',
+              });
+            }
+
+            // Check if we should retry
+            if (job.attempts < job.maxRetries) {
+              // Reset the job to pending for retry
+              await this.cfg.storage.updateJob(job.id, {
+                status: 'pending',
+                failReason: 'Worker which was running the task is no longer active',
+                failCount: job.failCount + 1,
+                lockedAt: null,
+                lockedBy: null,
+              });
+
+              this.cfg.logger.info('Job reset for retry after worker became inactive', {
+                jobId: job.id,
+                type: job.type,
+                attempt: job.attempts + 1,
+                maxRetries: job.maxRetries,
+              });
+            } else {
+              // Mark as failed if we've exceeded retries
+              await this.cfg.storage.updateJob(job.id, {
+                status: 'failed',
+                failReason: 'Worker which was running the task is no longer active',
+                failCount: job.failCount + 1,
+                lockedAt: null,
+                lockedBy: null,
+              });
+
+              this.cfg.logger.warn('Job failed permanently due to worker becoming inactive', {
+                jobId: job.id,
+                type: job.type,
+                attempts: job.attempts,
+                maxRetries: job.maxRetries,
+              });
+            }
           }
 
           // Now remove the worker
