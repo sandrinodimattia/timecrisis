@@ -26,8 +26,8 @@ describe('DeadWorkersTask', () => {
       storage,
       leaderElection: leader,
       logger: new EmptyLogger(),
-      cleanupInterval: 100,
-      deadWorkerTimeout: 30000,
+      pollInterval: 100,
+      workerDeadTimeout: 30000,
     });
 
     vi.useFakeTimers();
@@ -142,8 +142,8 @@ describe('DeadWorkersTask', () => {
       storage: failingStorage, // Use the failing storage here
       leaderElection: leader,
       logger: new EmptyLogger(),
-      cleanupInterval: 100,
-      deadWorkerTimeout: 30000,
+      pollInterval: 100,
+      workerDeadTimeout: 30000,
     });
 
     await failingTask.start();

@@ -7,11 +7,11 @@ import { Job, JobStorageMetrics } from '../storage/schemas/index.js';
 /**
  * Options for configuring the job scheduler.
  */
-export interface SchedulerOptions {
+export interface SchedulerConfig {
   /**
    * Unique identifier for this scheduler instance.
    **/
-  node?: string;
+  worker?: string;
 
   /**
    * Storage adapter for persisting jobs and related data.
@@ -24,24 +24,61 @@ export interface SchedulerOptions {
   logger?: Logger;
 
   /**
-   * Maximum number of jobs that can run concurrently across all types
+   * Maximum number of jobs that can run concurrently across all types.
+   * Default: 20.
    **/
   maxConcurrentJobs?: number;
 
   /**
-   * How often to check for new jobs (in milliseconds)
-   **/
-  pollInterval?: number;
-
-  /**
    * How long a job can run before being considered stuck (in milliseconds).
+   * Default: 60 seconds.
    **/
   jobLockTTL?: number;
 
   /**
    * How long a leader lock is valid before needing renewal (in milliseconds).
+   * Default: 30 seconds.
    **/
   leaderLockTTL?: number;
+
+  /**
+   * How often to check for jobs that need to be processed.
+   * Default: 5 seconds.
+   **/
+  jobProcessingInterval?: number;
+
+  /**
+   * How often to check for jobs that need to be scheduled.
+   * Default: 60 seconds.
+   **/
+  jobSchedulingInterval?: number;
+
+  /**
+   * Maximum age of a job before it is considered stale (in milliseconds).
+   * This is used by the scheduler to determine if a scheduled job should be planned or skipped.
+   * Default: 1 hour.
+   **/
+  scheduledJobMaxStaleAge?: number;
+
+  /**
+   * The interval in milliseconds at which to check for expired jobs.
+   * Default: 60 seconds.
+   */
+  expiredJobCheckInterval?: number;
+
+  /**
+   * The interval in milliseconds at which to send heartbeats.
+   * This is an indication that the worker is still alive.
+   * Default: 15 seconds.
+   */
+  workerHeartbeatInterval?: number;
+
+  /**
+   * The interval in milliseconds at which to check for inactive workers.
+   * Inactive workers are deleted and their locks removed.
+   * Default: 60 seconds.
+   */
+  workerInactiveCheckInterval?: number;
 }
 
 /**

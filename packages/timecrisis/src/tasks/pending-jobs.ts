@@ -26,7 +26,7 @@ export interface PendingJobsConfig {
   /**
    * Name of the worker that is performing the job.
    */
-  worker: string;
+  node: string;
 
   /**
    * Maximum number of concurrent jobs that can be running at once.
@@ -36,7 +36,12 @@ export interface PendingJobsConfig {
   /**
    * Lock lifetime in milliseconds.
    */
-  lockLifetime: number;
+  jobLockTTL: number;
+
+  /**
+   * Poll interval in milliseconds.
+   */
+  pollInterval: number;
 
   /**
    * Function to touch a job in the storage.
@@ -56,6 +61,8 @@ export interface PendingJobsConfig {
 }
 
 export class PendingJobsTask {
+  private timer: NodeJS.Timeout | null = null;
+
   private readonly cfg: PendingJobsConfig;
   private readonly logger: Logger;
   private readonly globalConcurrency: GlobalConcurrencyManager;
@@ -74,86 +81,101 @@ export class PendingJobsTask {
   }
 
   /**
+   * Start task to plan for scheduled jobs.
+   */
+  async start(): Promise<void> {
+    // Start the check timer
+    this.timer = setInterval(async () => {
+      try {
+        await this.execute();
+      } catch (err) {
+        this.logger.error('Error processing pending jobs', {
+          error: err instanceof Error ? err.message : String(err),
+          error_stack: err instanceof Error ? err.stack : undefined,
+        });
+      }
+    }, this.cfg.pollInterval);
+  }
+
+  /**
+   * Stop the scheduled jobs planning task.
+   */
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /**
    * Process pending jobs.
    */
   public async execute(): Promise<void> {
-    try {
-      const now = new Date();
+    const now = new Date();
 
-      // Get pending jobs.
-      const pendingJobs = await this.cfg.storage.listJobs({
-        status: ['pending'],
-        runAtBefore: now,
-        limit: this.cfg.maxConcurrentJobs * 2,
-      });
+    // Get pending jobs.
+    const pendingJobs = await this.cfg.storage.listJobs({
+      status: ['pending'],
+      runAtBefore: now,
+      limit: this.cfg.maxConcurrentJobs * 2,
+    });
 
-      this.logger.debug('Processing pending jobs', {
-        jobs: pendingJobs.length,
-      });
+    this.logger.debug('Processing pending jobs', {
+      jobs: pendingJobs.length,
+    });
 
-      // Process valid to respect concurrency limits.
-      const promises = pendingJobs
-        .filter((job) => {
+    // Process valid to respect concurrency limits.
+    const promises = pendingJobs
+      .filter((job) => {
+        const jobDef = this.cfg.jobs.get(job.type);
+        if (!jobDef) {
+          this.logger.warn('Invalid job type, skipping job', {
+            jobId: job.id,
+            type: job.type,
+          });
+          return false;
+        }
+
+        // Try to acquire global concurrency slot.
+        if (!this.globalConcurrency.acquire(job.id)) {
+          this.logger.debug('Failed to acquire global concurrency slot for job', {
+            jobId: job.id,
+            type: job.type,
+          });
+          return;
+        }
+
+        return true;
+      })
+      .map(async (job) => {
+        try {
           const jobDef = this.cfg.jobs.get(job.type);
-          if (!jobDef) {
-            this.logger.warn('Invalid job type, skipping job', {
-              jobId: job.id,
-              type: job.type,
-            });
-            return false;
-          }
+          const maxForType = jobDef!.concurrency ?? this.cfg.maxConcurrentJobs;
 
-          // Try to acquire global concurrency slot.
-          if (!this.globalConcurrency.acquire(job.id)) {
-            this.logger.debug('Failed to acquire global concurrency slot for job', {
+          // Check if concurrency slot is available for this job type.
+          const jobTypeLock = await this.cfg.storage.acquireConcurrencySlot(job.type, maxForType);
+          if (!jobTypeLock) {
+            this.logger.debug('Failed to acquire concurrency slot (type limit) for job', {
               jobId: job.id,
               type: job.type,
             });
             return;
           }
 
-          return true;
-        })
-        .map(async (job) => {
           try {
-            const jobDef = this.cfg.jobs.get(job.type);
-            const maxForType = jobDef!.concurrency ?? this.cfg.maxConcurrentJobs;
-
-            // Check if concurrency slot is available for this job type.
-            const jobTypeLock = await this.cfg.storage.acquireConcurrencySlot(job.type, maxForType);
-            if (!jobTypeLock) {
-              this.logger.debug('Failed to acquire concurrency slot (type limit) for job', {
+            // Try to acquire lock for the job
+            const locked = await this.tryAcquireLock(job);
+            if (!locked) {
+              this.logger.debug('Failed to acquire lock for job', {
                 jobId: job.id,
                 type: job.type,
               });
+              await this.cfg.storage.releaseConcurrencySlot(job.type);
               return;
             }
 
-            try {
-              // Try to acquire lock for the job
-              const locked = await this.tryAcquireLock(job);
-              if (!locked) {
-                this.logger.debug('Failed to acquire lock for job', {
-                  jobId: job.id,
-                  type: job.type,
-                });
-                await this.cfg.storage.releaseConcurrencySlot(job.type);
-                return;
-              }
-
-              // Process the job
-              await this.processJob(job);
-            } catch (err) {
-              this.logger.error('Error processing job', {
-                jobId: job.id,
-                type: job.type,
-                error: err instanceof Error ? err.message : String(err),
-                error_stack: err instanceof Error ? err.stack : undefined,
-              });
-            } finally {
-              // Release concurrency slot regardless of job success or failure
-              await this.cfg.storage.releaseConcurrencySlot(job.type);
-            }
+            // Process the job
+            await this.processJob(job);
           } catch (err) {
             this.logger.error('Error processing job', {
               jobId: job.id,
@@ -162,20 +184,24 @@ export class PendingJobsTask {
               error_stack: err instanceof Error ? err.stack : undefined,
             });
           } finally {
-            // Release global concurrency slot
-            this.globalConcurrency.release(job.id);
+            // Release concurrency slot regardless of job success or failure
+            await this.cfg.storage.releaseConcurrencySlot(job.type);
           }
-        });
-
-      // Wait for all jobs to complete
-      await Promise.all(promises);
-    } catch (err) {
-      this.logger.error('Error processing pending jobs', {
-        error: err instanceof Error ? err.message : String(err),
-        error_stack: err instanceof Error ? err.stack : undefined,
+        } catch (err) {
+          this.logger.error('Error processing job', {
+            jobId: job.id,
+            type: job.type,
+            error: err instanceof Error ? err.message : String(err),
+            error_stack: err instanceof Error ? err.stack : undefined,
+          });
+        } finally {
+          // Release global concurrency slot
+          this.globalConcurrency.release(job.id);
+        }
       });
-      throw err;
-    }
+
+    // Wait for all jobs to complete
+    await Promise.all(promises);
   }
 
   /**
@@ -364,7 +390,7 @@ export class PendingJobsTask {
    */
   private async tryAcquireLock(job: Job): Promise<boolean> {
     const now = new Date();
-    const lockLifetime = this.cfg.lockLifetime;
+    const lockLifetime = this.cfg.jobLockTTL;
 
     // Check if job is already locked.
     if (job.lockedAt) {
@@ -383,7 +409,7 @@ export class PendingJobsTask {
     try {
       await this.cfg.storage.updateJob(job.id, {
         lockedAt: now,
-        lockedBy: this.cfg.worker,
+        lockedBy: this.cfg.node,
       });
 
       return true;

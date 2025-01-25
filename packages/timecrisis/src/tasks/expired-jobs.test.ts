@@ -40,8 +40,8 @@ describe('ExpiredJobsTask', () => {
       storage,
       leaderElection,
       logger: new EmptyLogger(),
-      lockLifetime: 300000,
-      cleanupInterval: 200,
+      jobLockTTL: 300000,
+      pollInterval: 200,
     });
   });
 

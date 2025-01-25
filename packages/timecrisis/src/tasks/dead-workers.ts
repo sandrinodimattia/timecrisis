@@ -21,12 +21,12 @@ interface DeadWorkersTaskConfig {
   /**
    * The time in milliseconds after which a worker is considered dead if no heartbeat is received.
    */
-  deadWorkerTimeout: number;
+  workerDeadTimeout: number;
 
   /**
    * The interval in milliseconds at which to check for inactive workers.
    */
-  cleanupInterval: number;
+  pollInterval: number;
 }
 
 /**
@@ -67,7 +67,7 @@ export class DeadWorkersTask {
           error_stack: err instanceof Error ? err.stack : undefined,
         });
       }
-    }, this.cfg.cleanupInterval);
+    }, this.cfg.pollInterval);
   }
 
   /**
@@ -98,7 +98,7 @@ export class DeadWorkersTask {
     }
 
     const now = new Date();
-    const cutoff = new Date(now.getTime() - this.cfg.deadWorkerTimeout);
+    const cutoff = new Date(now.getTime() - this.cfg.workerDeadTimeout);
 
     try {
       // Get all workers that haven't sent a heartbeat since the cutoff

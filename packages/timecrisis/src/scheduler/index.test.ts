@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobScheduler } from './index.js';
 import { EmptyLogger } from '../logger/index.js';
@@ -9,29 +9,31 @@ import { JobDefinitionNotFoundError, JobAlreadyRegisteredError } from './types.j
 describe('JobScheduler', () => {
   let scheduler: JobScheduler;
   let storage: InMemoryJobStorage;
-  const now = new Date('2025-01-23T00:00:00.000Z');
+  let now: Date;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.useFakeTimers();
+    now = new Date('2025-01-23T00:00:00.000Z');
     vi.setSystemTime(now);
 
     storage = new InMemoryJobStorage();
     scheduler = new JobScheduler({
       storage,
       logger: new EmptyLogger(),
-      node: 'test-node',
-      pollInterval: 100, // Faster polling for tests
+      worker: 'test-node',
+      jobProcessingInterval: 100, // Faster polling for tests
+      jobSchedulingInterval: 100, // Faster polling for tests
       maxConcurrentJobs: 5,
       jobLockTTL: 1000,
       leaderLockTTL: 1000,
     });
 
     // Start the scheduler and wait for first interval execution
-    await scheduler.start();
+    scheduler.start();
     // Wait for leadership acquisition and first interval
-    await vi.advanceTimersByTimeAsync(100);
+    vi.advanceTimersByTimeAsync(100);
     // Wait for first job processing interval
-    await vi.advanceTimersByTimeAsync(100);
+    vi.advanceTimersByTimeAsync(100);
   });
 
   afterEach(async () => {

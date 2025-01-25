@@ -16,49 +16,61 @@ import {
   ScheduleOptions,
   SchedulerError,
   SchedulerMetrics,
-  SchedulerOptions,
+  SchedulerConfig,
 } from './types.js';
+
+import {
+  DeadWorkersTask,
+  ExpiredJobsTask,
+  PendingJobsTask,
+  ScheduledJobsTask,
+  WorkerAliveTask,
+} from '../tasks/index.js';
+
 import { LeaderElection } from '../leader/index.js';
 import { parseDuration } from '../lib/duration.js';
 import { EmptyLogger, Logger } from '../logger/index.js';
 import { Job, JobRun } from '../storage/schemas/index.js';
 import { JobNotFoundError, JobStorage } from '../storage/types.js';
-import { ExpiredJobsTask, PendingJobsTask, ScheduledJobsTask } from '../tasks/index.js';
 
 export class JobScheduler {
-  private node: string;
-  private leaderElection: LeaderElection;
-  private jobs: Map<string, JobDefinition> = new Map();
+  private worker: string;
   private storage: JobStorage;
   private logger: Logger;
+  private leaderElection: LeaderElection;
+  private jobs: Map<string, JobDefinition> = new Map();
   private isRunning: boolean = false;
-  private intervals = {
-    process: null as NodeJS.Timeout | null,
-    schedule: null as NodeJS.Timeout | null,
-    cleanup: null as NodeJS.Timeout | null,
-    expired: null as NodeJS.Timeout | null,
-  };
+  private opts: SchedulerConfig;
+
   private tasks: {
+    workerInactiveCleanup: DeadWorkersTask;
+    expiredJobs: ExpiredJobsTask;
     pendingJobs: PendingJobsTask;
     scheduledJobs: ScheduledJobsTask;
-    expiredJobs: ExpiredJobsTask;
+    workerAlive: WorkerAliveTask;
   };
 
-  constructor(private opts: SchedulerOptions) {
-    this.node = opts.node ?? `${hostname()}-${randomUUID()}`;
+  constructor(opts: SchedulerConfig) {
+    this.worker = opts.worker ?? `${hostname()}-${randomUUID()}`;
     this.logger = opts.logger ?? new EmptyLogger();
     this.storage = opts.storage;
     this.opts = {
-      maxConcurrentJobs: 20,
-      pollInterval: 2000,
-      jobLockTTL: 300000,
       ...opts,
+      maxConcurrentJobs: opts.maxConcurrentJobs ?? 20,
+      leaderLockTTL: opts.leaderLockTTL ?? 30000,
+      scheduledJobMaxStaleAge: opts.scheduledJobMaxStaleAge ?? 1000 * 60 * 60,
+      expiredJobCheckInterval: opts.expiredJobCheckInterval ?? 60000,
+      jobLockTTL: opts.jobLockTTL ?? 60000,
+      jobProcessingInterval: opts.jobProcessingInterval ?? 5000,
+      jobSchedulingInterval: opts.jobSchedulingInterval ?? 60000,
+      workerHeartbeatInterval: opts.workerHeartbeatInterval ?? 15000,
+      workerInactiveCheckInterval: opts.workerInactiveCheckInterval ?? 60000,
     };
 
     // Initialize leader election process, without starting it.
     this.leaderElection = new LeaderElection({
       storage: this.storage,
-      node: this.node,
+      node: this.worker,
       lockTTL: opts.leaderLockTTL ?? 30000,
       onAcquired: async (): Promise<void> => {
         this.logger.info('Acquired leadership');
@@ -71,21 +83,45 @@ export class JobScheduler {
 
     // Create the different tasks which run in the background.
     this.tasks = {
-      pendingJobs: new PendingJobsTask(
-        this.storage,
-        this.jobs,
-        this.executeForkMode.bind(this),
-        this.touchJob.bind(this),
-        this.logger,
-        {
-          maxConcurrentJobs: this.opts.maxConcurrentJobs!,
-        }
-      ),
-      scheduledJobs: new ScheduledJobsTask(this.storage, async (type: string, data: unknown) => {
-        await this.enqueue(type, data);
+      pendingJobs: new PendingJobsTask({
+        logger: this.logger,
+        jobs: this.jobs,
+        storage: this.storage,
+        node: this.worker,
+        executeForkMode: this.executeForkMode.bind(this),
+        touchJob: this.touchJob.bind(this),
+        maxConcurrentJobs: this.opts.maxConcurrentJobs!,
+        jobLockTTL: this.opts.jobLockTTL!,
+        pollInterval: this.opts.jobProcessingInterval!,
       }),
-      expiredJobs: new ExpiredJobsTask(this.storage, this.leaderElection, this.logger, {
-        lockLifetime: this.opts.jobLockTTL!,
+      scheduledJobs: new ScheduledJobsTask({
+        storage: this.storage,
+        logger: this.logger,
+        scheduledJobMaxStaleAge: this.opts.scheduledJobMaxStaleAge!,
+        pollInterval: this.opts.jobSchedulingInterval!,
+        enqueueJob: async (job, data): Promise<void> => {
+          await this.enqueue(job, data);
+        },
+      }),
+      expiredJobs: new ExpiredJobsTask({
+        storage: this.storage,
+        logger: this.logger,
+        leaderElection: this.leaderElection,
+        jobLockTTL: this.opts.jobLockTTL!,
+        pollInterval: this.opts.expiredJobCheckInterval!,
+      }),
+      workerAlive: new WorkerAliveTask({
+        logger: this.logger,
+        storage: this.storage,
+        name: this.worker,
+        heartbeatInterval: this.opts.workerHeartbeatInterval!,
+      }),
+      workerInactiveCleanup: new DeadWorkersTask({
+        logger: this.logger,
+        storage: this.storage,
+        leaderElection: this.leaderElection,
+        pollInterval: this.opts.workerInactiveCheckInterval!,
+        workerDeadTimeout: this.opts.workerHeartbeatInterval! * 2,
       }),
     };
   }
@@ -128,11 +164,11 @@ export class JobScheduler {
     const jobId = await this.storage.createJob({
       type,
       data: validData,
-      maxRetries: options.maxRetries ?? 3,
-      priority: options.priority ?? job.priority ?? 0,
+      maxRetries: options.maxRetries,
+      priority: options.priority ?? job.priority,
       referenceId: options.referenceId,
       expiresAt,
-      backoffStrategy: options.backoffStrategy ?? 'exponential',
+      backoffStrategy: options.backoffStrategy,
     });
 
     return jobId;
@@ -279,49 +315,12 @@ export class JobScheduler {
 
     // Start leader election process.
     await this.leaderElection.start();
-
-    this.logger.info(`Pending jobs will be processed every ${this.opts.pollInterval} ms`);
-
-    // Start the interval to process pending jobs.
-    this.intervals.process = setInterval(async () => {
-      try {
-        await this.tasks.pendingJobs.execute();
-      } catch (err) {
-        this.logger.error('Error processing jobs:', {
-          error: err instanceof Error ? err.message : String(err),
-          error_stack: err instanceof Error ? err.stack : undefined,
-        });
-      }
-    }, this.opts.pollInterval!);
-
-    this.logger.info(`Scheduled jobs will be planned every ${this.opts.pollInterval} ms`);
-
-    // Start the interval to enqueue jobs based on the schedule.
-    this.intervals.schedule = this.scheduleLeaderTask(this.opts.pollInterval!, async () => {
-      try {
-        await this.tasks.scheduledJobs.execute();
-      } catch (err) {
-        this.logger.error('Error scheduling jobs:', {
-          error: err instanceof Error ? err.message : String(err),
-          error_stack: err instanceof Error ? err.stack : undefined,
-        });
-      }
-    });
-
-    this.logger.info(`Expired jobs will be processed every ${this.opts.pollInterval} ms`);
-
-    // Start the interval to handle expired jobs.
-    this.intervals.expired = this.scheduleLeaderTask(this.opts.pollInterval!, async () => {
-      try {
-        await this.tasks.expiredJobs.execute();
-      } catch (err) {
-        this.logger.error('Error handling expired jobs:', {
-          error: err instanceof Error ? err.message : String(err),
-          error_stack: err instanceof Error ? err.stack : undefined,
-        });
-      }
-    });
-
+    await this.tasks.workerAlive.start();
+    await this.tasks.workerInactiveCleanup.start();
+    await this.tasks.expiredJobs.start();
+    await this.tasks.pendingJobs.start();
+    await this.tasks.scheduledJobs.start();
+    /*
     // Enforce job retention.
     this.intervals.cleanup = this.scheduleLeaderTask(3600000, async () => {
       try {
@@ -336,21 +335,7 @@ export class JobScheduler {
           error_stack: err instanceof Error ? err.stack : undefined,
         });
       }
-    });
-  }
-
-  /**
-   * Schedule a task to only run when the current process is the leader
-   * @param interval
-   * @param fn
-   * @returns
-   */
-  scheduleLeaderTask(interval: number, fn: () => Promise<void>): NodeJS.Timeout {
-    return setInterval(async () => {
-      if (this.leaderElection.isCurrentLeader()) {
-        await fn();
-      }
-    }, interval);
+    });*/
   }
 
   /**
@@ -365,26 +350,15 @@ export class JobScheduler {
     this.isRunning = false;
     this.logger.info('Stopping scheduler...');
 
-    // Stop leader election
+    // Stop leader election.
     await this.leaderElection.stop();
 
-    // Clear all intervals
-    if (this.intervals.process) {
-      clearInterval(this.intervals.process);
-      this.intervals.process = null;
-    }
-    if (this.intervals.schedule) {
-      clearInterval(this.intervals.schedule);
-      this.intervals.schedule = null;
-    }
-    if (this.intervals.cleanup) {
-      clearInterval(this.intervals.cleanup);
-      this.intervals.cleanup = null;
-    }
-    if (this.intervals.expired) {
-      clearInterval(this.intervals.expired);
-      this.intervals.expired = null;
-    }
+    // Stop tasks.
+    this.tasks.workerAlive.stop();
+    this.tasks.workerInactiveCleanup.stop();
+    this.tasks.expiredJobs.stop();
+    this.tasks.pendingJobs.stop();
+    this.tasks.scheduledJobs.stop();
 
     if (!force) {
       // Wait for running jobs to finish with a 2-minute timeout.

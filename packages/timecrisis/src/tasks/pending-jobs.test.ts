@@ -30,9 +30,10 @@ describe('PendingJobsTask', () => {
       executeForkMode,
       touchJob,
       logger: new EmptyLogger(),
-      worker: 'test-worker',
+      node: 'test-worker',
       maxConcurrentJobs: 20,
-      lockLifetime: 5000,
+      jobLockTTL: 5000,
+      pollInterval: 100,
     });
 
     vi.clearAllMocks();

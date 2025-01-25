@@ -18,9 +18,9 @@ export interface ScheduledJobsConfig {
 
   /**
    * Maximum age of a stale nextRunAt value in milliseconds
-   * If a job's nextRunAt is older than this, it will be recalculated
+   * If a job's nextRunAt is older than this, it will be skipped
    */
-  maxStaleAge: number;
+  scheduledJobMaxStaleAge: number;
 
   /**
    * Function to enqueue a job.
@@ -30,7 +30,7 @@ export interface ScheduledJobsConfig {
   /**
    * Interval in milliseconds at which to check for scheduled jobs.
    */
-  scheduleInterval: number;
+  pollInterval: number;
 }
 
 export class ScheduledJobsTask {
@@ -58,7 +58,7 @@ export class ScheduledJobsTask {
           error_stack: err instanceof Error ? err.stack : undefined,
         });
       }
-    }, this.cfg.scheduleInterval);
+    }, this.cfg.pollInterval);
   }
 
   /**
@@ -107,7 +107,8 @@ export class ScheduledJobsTask {
 
           // Check if the nextRunAt is stale
           const isStale =
-            job.nextRunAt && now.getTime() - job.nextRunAt.getTime() > this.cfg.maxStaleAge;
+            job.nextRunAt &&
+            now.getTime() - job.nextRunAt.getTime() > this.cfg.scheduledJobMaxStaleAge;
 
           // If the job is stale, skip this execution and just update the next run time
           if (isStale) {
@@ -115,7 +116,7 @@ export class ScheduledJobsTask {
               jobId: job.id,
               type: job.type,
               nextRunAt: job.nextRunAt,
-              maxStaleAge: this.cfg.maxStaleAge,
+              maxStaleAge: this.cfg.scheduledJobMaxStaleAge,
             });
 
             const nextRun = this.getNextRunDate(job, now);

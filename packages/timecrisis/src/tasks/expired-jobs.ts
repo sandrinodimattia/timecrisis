@@ -19,14 +19,14 @@ interface ExpiredJobsTaskConfig {
   leaderElection: LeaderElection;
 
   /**
-   * Time after which a lock is considered expired.
+   * The time a job can remain locked after it was created, without receiving an update.
    */
-  lockLifetime: number;
+  jobLockTTL: number;
 
   /**
    * Interval at which expired jobs are checked.
    */
-  cleanupInterval: number;
+  pollInterval: number;
 }
 
 export class ExpiredJobsTask {
@@ -65,7 +65,7 @@ export class ExpiredJobsTask {
           error_stack: err instanceof Error ? err.stack : undefined,
         });
       }
-    }, this.cfg.cleanupInterval);
+    }, this.cfg.pollInterval);
   }
 
   /**
@@ -101,12 +101,12 @@ export class ExpiredJobsTask {
           if (job.lockedAt) {
             // Check lock expiration
             const lockAge = now.getTime() - job.lockedAt.getTime();
-            if (lockAge > this.cfg.lockLifetime) {
+            if (lockAge > this.cfg.jobLockTTL) {
               this.logger.warn('Job lock expired', {
                 jobId: job.id,
                 type: job.type,
                 lockAge,
-                lockLifetime: this.cfg.lockLifetime,
+                lockLifetime: this.cfg.jobLockTTL,
               });
 
               // Get the current job run

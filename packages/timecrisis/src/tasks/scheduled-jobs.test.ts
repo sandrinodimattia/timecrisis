@@ -22,8 +22,8 @@ describe('ScheduledJobsTask', () => {
       storage,
       logger: new EmptyLogger(),
       enqueueJob,
-      scheduleInterval: 1000,
-      maxStaleAge: 1000,
+      pollInterval: 1000,
+      scheduledJobMaxStaleAge: 1000,
     });
 
     // Clear all mocks before each test
@@ -197,8 +197,8 @@ describe('ScheduledJobsTask', () => {
       storage,
       logger: new EmptyLogger(),
       enqueueJob,
-      scheduleInterval: 1000,
-      maxStaleAge: customMaxStaleAge,
+      pollInterval: 1000,
+      scheduledJobMaxStaleAge: customMaxStaleAge,
     });
 
     // Create a job that's stale by default standards but not by custom config
