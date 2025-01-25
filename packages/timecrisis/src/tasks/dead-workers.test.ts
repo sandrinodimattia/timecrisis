@@ -403,4 +403,73 @@ describe('DeadWorkersTask', () => {
     expect(job?.failCount).toBe(1);
     expect(job?.failReason).toBe('Worker which was running the task is no longer active');
   });
+
+  it('should cleanup concurrency slots when worker becomes inactive', async () => {
+    // Register an inactive worker
+    const worker = await storage.registerWorker({
+      name: 'inactive-worker',
+    });
+
+    // Acquire some job type slots for the worker
+    await storage.acquireJobTypeSlot('job-type-1', worker, 5);
+    await storage.acquireJobTypeSlot('job-type-1', worker, 5);
+    await storage.acquireJobTypeSlot('job-type-2', worker, 5);
+
+    // Verify slots are acquired
+    expect(await storage.getRunningCount('job-type-1')).toBe(2);
+    expect(await storage.getRunningCount('job-type-2')).toBe(1);
+    expect(await storage.getRunningCount()).toBe(3);
+
+    // Update heartbeat to old timestamp
+    const oldDate = new Date('2025-01-22T23:00:00.000Z'); // 1 hour ago
+    await storage.updateWorkerHeartbeat(worker, {
+      last_heartbeat: oldDate,
+    });
+
+    // Execute task
+    await task.execute();
+
+    // Verify worker was removed
+    const workerAfter = await storage.getWorker(worker);
+    expect(workerAfter).toBeNull();
+
+    // Verify all slots were released
+    expect(await storage.getRunningCount('job-type-1')).toBe(0);
+    expect(await storage.getRunningCount('job-type-2')).toBe(0);
+    expect(await storage.getRunningCount()).toBe(0);
+  });
+
+  it('should cleanup concurrency slots for multiple inactive workers', async () => {
+    // Register two workers
+    const worker1 = await storage.registerWorker({ name: 'worker-1' });
+    const worker2 = await storage.registerWorker({ name: 'worker-2' });
+
+    // Acquire slots for both workers
+    await storage.acquireJobTypeSlot('job-type-1', worker1, 5);
+    await storage.acquireJobTypeSlot('job-type-1', worker2, 5);
+    await storage.acquireJobTypeSlot('job-type-2', worker1, 5);
+    await storage.acquireJobTypeSlot('job-type-2', worker2, 5);
+
+    // Verify initial slot counts
+    expect(await storage.getRunningCount('job-type-1')).toBe(2);
+    expect(await storage.getRunningCount('job-type-2')).toBe(2);
+    expect(await storage.getRunningCount()).toBe(4);
+
+    // Make both workers inactive
+    const oldDate = new Date('2025-01-22T23:00:00.000Z');
+    await storage.updateWorkerHeartbeat(worker1, { last_heartbeat: oldDate });
+    await storage.updateWorkerHeartbeat(worker2, { last_heartbeat: oldDate });
+
+    // Execute task
+    await task.execute();
+
+    // Verify all slots were released
+    expect(await storage.getRunningCount('job-type-1')).toBe(0);
+    expect(await storage.getRunningCount('job-type-2')).toBe(0);
+    expect(await storage.getRunningCount()).toBe(0);
+
+    // Verify workers were removed
+    expect(await storage.getWorker(worker1)).toBeNull();
+    expect(await storage.getWorker(worker2)).toBeNull();
+  });
 });

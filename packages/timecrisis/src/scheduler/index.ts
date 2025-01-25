@@ -77,7 +77,6 @@ export class JobScheduler {
       lockTTL: opts.leaderLockTTL ?? 30000,
       onAcquired: async (): Promise<void> => {
         this.logger.info('Acquired leadership');
-        await this.redistributeStuckJobs();
       },
       onLost: async (): Promise<void> => {
         this.logger.warn('Lost leadership');
@@ -474,41 +473,5 @@ export class JobScheduler {
       job,
       runs: await this.storage.listJobRuns(jobId),
     };
-  }
-
-  /**
-   * Redistribute jobs that might be stuck due to failed nodes
-   */
-  private async redistributeStuckJobs(): Promise<void> {
-    const now = new Date();
-    const stuckJobs = await this.storage.listJobs({
-      status: ['running'],
-      lockedBefore: new Date(now.getTime() - this.opts.jobLockTTL!),
-    });
-
-    for (const job of stuckJobs) {
-      this.logger.info(`Redistributing job ${job.id} due to leadership change`, {
-        jobId: job.id,
-        previousLock: job.lockedAt,
-      });
-
-      // Change the job back to pending.
-      await this.storage.updateJob(job.id, {
-        status: 'pending',
-        lockedAt: null,
-        failCount: job.failCount + 1,
-        failReason: 'Job redistributed due to node failure',
-      });
-
-      await this.storage.createJobLog({
-        jobId: job.id,
-        timestamp: now,
-        level: 'warn',
-        message: 'Job redistributed due to node failure',
-        metadata: {
-          previousLock: job.lockedAt,
-        },
-      });
-    }
   }
 }
