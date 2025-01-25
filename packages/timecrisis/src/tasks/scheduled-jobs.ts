@@ -1,40 +1,78 @@
 import * as cronParser from 'cron-parser';
 
+import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
 import { parseDuration } from '../lib/duration.js';
 import { ScheduledJob } from '../storage/schemas/index.js';
-import { Logger, logger as defaultLogger } from '../logger/index.js';
 
 export interface ScheduledJobsConfig {
   /**
+   * Logger.
+   */
+  logger: Logger;
+
+  /**
+   * Storage backend.
+   */
+  storage: JobStorage;
+
+  /**
    * Maximum age of a stale nextRunAt value in milliseconds
    * If a job's nextRunAt is older than this, it will be recalculated
-   * Default: 5 minutes
    */
-  maxStaleAge?: number;
+  maxStaleAge: number;
+
+  /**
+   * Function to enqueue a job.
+   */
+  enqueueJob: (type: string, data: unknown) => Promise<void>;
+
+  /**
+   * Interval in milliseconds at which to check for scheduled jobs.
+   */
+  scheduleInterval: number;
 }
 
 export class ScheduledJobsTask {
-  private storage: JobStorage;
-  private maxStaleAge: number;
   private isExecuting: boolean = false;
-  private enqueueJob: (type: string, data: unknown) => Promise<void>;
-  private logger: Logger;
+  private timer: NodeJS.Timeout | null = null;
+  private readonly cfg: ScheduledJobsConfig;
+  private readonly logger: Logger;
 
-  constructor(
-    storage: JobStorage,
-    enqueueJob: (type: string, data: unknown) => Promise<void>,
-    logger: Logger = defaultLogger,
-    config: ScheduledJobsConfig = {}
-  ) {
-    this.storage = storage;
-    this.enqueueJob = enqueueJob;
-    this.logger = logger.child('ScheduledJobsTask');
-    this.maxStaleAge = config.maxStaleAge || 5 * 60 * 1000; // 5 minutes default
+  constructor(config: ScheduledJobsConfig) {
+    this.cfg = config;
+    this.logger = config.logger.child('ScheduledJobsTask');
   }
 
   /**
-   * Check and process scheduled jobs that are due to run
+   * Start task to plan for scheduled jobs.
+   */
+  async start(): Promise<void> {
+    // Start the check timer
+    this.timer = setInterval(async () => {
+      try {
+        await this.execute();
+      } catch (err) {
+        this.cfg.logger.error(`Failed to execute scheduled jobs planning`, {
+          error: err instanceof Error ? err.message : String(err),
+          error_stack: err instanceof Error ? err.stack : undefined,
+        });
+      }
+    }, this.cfg.scheduleInterval);
+  }
+
+  /**
+   * Stop the scheduled jobs planning task.
+   */
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+  }
+
+  /**
+   * Check and process scheduled jobs that are due to run.
    */
   public async execute(): Promise<void> {
     // Skip if already running
@@ -48,7 +86,7 @@ export class ScheduledJobsTask {
       const now = new Date();
 
       // Get all enabled jobs that are due to run
-      const scheduledJobs = await this.storage.listScheduledJobs({
+      const scheduledJobs = await this.cfg.storage.listScheduledJobs({
         enabled: true,
         nextRunBefore: now,
       });
@@ -69,7 +107,7 @@ export class ScheduledJobsTask {
 
           // Check if the nextRunAt is stale
           const isStale =
-            job.nextRunAt && now.getTime() - job.nextRunAt.getTime() > this.maxStaleAge;
+            job.nextRunAt && now.getTime() - job.nextRunAt.getTime() > this.cfg.maxStaleAge;
 
           // If the job is stale, skip this execution and just update the next run time
           if (isStale) {
@@ -77,7 +115,7 @@ export class ScheduledJobsTask {
               jobId: job.id,
               type: job.type,
               nextRunAt: job.nextRunAt,
-              maxStaleAge: this.maxStaleAge,
+              maxStaleAge: this.cfg.maxStaleAge,
             });
 
             const nextRun = this.getNextRunDate(job, now);
@@ -88,7 +126,7 @@ export class ScheduledJobsTask {
                 nextRunAt: nextRun,
               });
 
-              await this.storage.updateScheduledJob(job.id, {
+              await this.cfg.storage.updateScheduledJob(job.id, {
                 nextRunAt: nextRun,
               });
             }
@@ -103,7 +141,7 @@ export class ScheduledJobsTask {
           });
 
           // Execute the job
-          await this.enqueueJob(job.type, job.data);
+          await this.cfg.enqueueJob(job.type, job.data);
 
           // Update the last run time and calculate next run
           const executionTime = new Date();
@@ -135,7 +173,7 @@ export class ScheduledJobsTask {
             }
           }
 
-          await this.storage.updateScheduledJob(job.id, updates);
+          await this.cfg.storage.updateScheduledJob(job.id, updates);
         } catch (err) {
           this.logger.error(`Error processing scheduled job ${job.id}:`, {
             error: err instanceof Error ? err.message : String(err),

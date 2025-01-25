@@ -33,6 +33,7 @@ interface DeadWorkersTaskConfig {
  * Task which checks for and removes dead workers (workers that haven't sent a heartbeat).
  */
 export class DeadWorkersTask {
+  private isExecuting: boolean = false;
   private timer: NodeJS.Timeout | null = null;
 
   private readonly cfg: DeadWorkersTaskConfig;
@@ -87,6 +88,13 @@ export class DeadWorkersTask {
     // Only run this task if we are the leader
     if (!this.cfg.leaderElection.isCurrentLeader()) {
       return;
+    }
+
+    // Skip if already running
+    if (this.isExecuting) {
+      return;
+    } else {
+      this.isExecuting = true;
     }
 
     const now = new Date();
@@ -190,6 +198,8 @@ export class DeadWorkersTask {
         error: err instanceof Error ? err.message : String(err),
         error_stack: err instanceof Error ? err.stack : undefined,
       });
+    } finally {
+      this.isExecuting = false;
     }
   }
 }
