@@ -36,7 +36,8 @@ describe('JobContextImpl', () => {
       1,
       5,
       { foo: 'test', bar: 42 },
-      mockTouchFn
+      mockTouchFn,
+      new WeakRef({ isShuttingDown: false })
     );
   });
 

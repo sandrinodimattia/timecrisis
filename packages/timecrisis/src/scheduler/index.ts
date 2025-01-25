@@ -24,6 +24,7 @@ import {
   ExpiredJobsTask,
   PendingJobsTask,
   ScheduledJobsTask,
+  StorageCleanupTask,
   WorkerAliveTask,
 } from '../tasks/index.js';
 
@@ -46,6 +47,7 @@ export class JobScheduler {
     workerInactiveCleanup: DeadWorkersTask;
     expiredJobs: ExpiredJobsTask;
     pendingJobs: PendingJobsTask;
+    storageCleanup: StorageCleanupTask;
     scheduledJobs: ScheduledJobsTask;
     workerAlive: WorkerAliveTask;
   };
@@ -63,6 +65,7 @@ export class JobScheduler {
       jobLockTTL: opts.jobLockTTL ?? 60000,
       jobProcessingInterval: opts.jobProcessingInterval ?? 5000,
       jobSchedulingInterval: opts.jobSchedulingInterval ?? 60000,
+      shutdownTimeout: opts.shutdownTimeout ?? 15000,
       workerHeartbeatInterval: opts.workerHeartbeatInterval ?? 15000,
       workerInactiveCheckInterval: opts.workerInactiveCheckInterval ?? 60000,
     };
@@ -97,6 +100,7 @@ export class JobScheduler {
       scheduledJobs: new ScheduledJobsTask({
         storage: this.storage,
         logger: this.logger,
+        leaderElection: this.leaderElection,
         scheduledJobMaxStaleAge: this.opts.scheduledJobMaxStaleAge!,
         pollInterval: this.opts.jobSchedulingInterval!,
         enqueueJob: async (job, data): Promise<void> => {
@@ -109,6 +113,14 @@ export class JobScheduler {
         leaderElection: this.leaderElection,
         jobLockTTL: this.opts.jobLockTTL!,
         pollInterval: this.opts.expiredJobCheckInterval!,
+      }),
+      storageCleanup: new StorageCleanupTask({
+        storage: this.storage,
+        logger: this.logger,
+        pollInterval: 3600000,
+        jobRetention: 365,
+        failedJobRetention: 365,
+        deadLetterRetention: 365,
       }),
       workerAlive: new WorkerAliveTask({
         logger: this.logger,
@@ -320,22 +332,7 @@ export class JobScheduler {
     await this.tasks.expiredJobs.start();
     await this.tasks.pendingJobs.start();
     await this.tasks.scheduledJobs.start();
-    /*
-    // Enforce job retention.
-    this.intervals.cleanup = this.scheduleLeaderTask(3600000, async () => {
-      try {
-        await this.storage.cleanup({
-          jobRetention: 90,
-          failedJobRetention: 90,
-          deadLetterRetention: 180,
-        });
-      } catch (err) {
-        this.logger.error('Error cleaning up jobs:', {
-          error: err instanceof Error ? err.message : String(err),
-          error_stack: err instanceof Error ? err.stack : undefined,
-        });
-      }
-    });*/
+    await this.tasks.storageCleanup.start();
   }
 
   /**
@@ -359,19 +356,27 @@ export class JobScheduler {
     this.tasks.expiredJobs.stop();
     this.tasks.pendingJobs.stop();
     this.tasks.scheduledJobs.stop();
+    this.tasks.storageCleanup.stop();
 
+    // Shutdown.
     if (!force) {
-      // Wait for running jobs to finish with a 2-minute timeout.
       const startTime = Date.now();
-      const timeoutMs = 2 * 60 * 1000; // 2 minutes
+      const shutdownTimeout = this.opts.shutdownTimeout ?? 15000;
+      const pollInterval = 500;
+
       while (this.tasks.pendingJobs.getRunningCount() > 0) {
-        if (Date.now() - startTime > timeoutMs) {
+        const elapsedTime = Date.now() - startTime;
+        if (elapsedTime >= shutdownTimeout) {
           this.logger.warn(
-            'Stop operation timed out after 2 minutes with running jobs still active'
+            `Shutdown timeout of ${shutdownTimeout} ms reached with ${this.tasks.pendingJobs.getRunningCount()} jobs still running`
           );
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 100));
+
+        this.logger.info(
+          `Waiting for ${this.tasks.pendingJobs.getRunningCount()} running jobs to finish (${elapsedTime}ms elapsed)...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, pollInterval));
       }
     }
 

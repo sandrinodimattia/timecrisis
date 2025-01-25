@@ -36,10 +36,12 @@ export class DeadWorkersTask {
   private isExecuting: boolean = false;
   private timer: NodeJS.Timeout | null = null;
 
+  private readonly logger: Logger;
   private readonly cfg: DeadWorkersTaskConfig;
 
   constructor(config: DeadWorkersTaskConfig) {
     this.cfg = config;
+    this.logger = this.cfg.logger.child('dead-workers');
   }
 
   /**
@@ -51,7 +53,7 @@ export class DeadWorkersTask {
     try {
       await this.execute();
     } catch (err) {
-      this.cfg.logger.error(`Failed to execute dead workers check`, {
+      this.logger.error(`Failed to execute dead workers check`, {
         error: err instanceof Error ? err.message : String(err),
         error_stack: err instanceof Error ? err.stack : undefined,
       });
@@ -62,7 +64,7 @@ export class DeadWorkersTask {
       try {
         await this.execute();
       } catch (err) {
-        this.cfg.logger.error(`Failed to execute dead workers check`, {
+        this.logger.error(`Failed to execute dead workers check`, {
           error: err instanceof Error ? err.message : String(err),
           error_stack: err instanceof Error ? err.stack : undefined,
         });
@@ -107,7 +109,7 @@ export class DeadWorkersTask {
         return;
       }
 
-      this.cfg.logger.info(`Found ${inactiveWorkers.length} inactive workers to remove`, {
+      this.logger.info(`Found ${inactiveWorkers.length} inactive workers to remove`, {
         cutoff_time: cutoff.toISOString(),
         worker_count: inactiveWorkers.length,
       });
@@ -134,7 +136,7 @@ export class DeadWorkersTask {
                 finishedAt: now,
               });
 
-              this.cfg.logger.debug('Setting job run to failed due to dead worker', {
+              this.logger.debug('Setting job run to failed due to dead worker', {
                 jobId: job.id,
                 runId: currentRun.id,
                 status: 'failed',
@@ -152,7 +154,7 @@ export class DeadWorkersTask {
                 lockedBy: null,
               });
 
-              this.cfg.logger.info('Job reset for retry after worker became inactive', {
+              this.logger.info('Job reset for retry after worker became inactive', {
                 jobId: job.id,
                 type: job.type,
                 attempt: job.attempts + 1,
@@ -168,7 +170,7 @@ export class DeadWorkersTask {
                 lockedBy: null,
               });
 
-              this.cfg.logger.warn('Job failed permanently due to worker becoming inactive', {
+              this.logger.warn('Job failed permanently due to worker becoming inactive', {
                 jobId: job.id,
                 type: job.type,
                 attempts: job.attempts,
@@ -179,14 +181,14 @@ export class DeadWorkersTask {
 
           // Now remove the worker
           await this.cfg.storage.deleteWorker(worker.id);
-          this.cfg.logger.info(`Removed inactive worker`, {
+          this.logger.info(`Removed inactive worker`, {
             worker_id: worker.id,
             worker_name: worker.name,
             last_heartbeat: worker.last_heartbeat?.toISOString(),
             locked_jobs_cleaned: lockedJobs.length,
           });
         } catch (err) {
-          this.cfg.logger.error(`Failed to remove inactive worker`, {
+          this.logger.error(`Failed to remove inactive worker`, {
             worker_id: worker.id,
             error: err instanceof Error ? err.message : String(err),
             error_stack: err instanceof Error ? err.stack : undefined,
@@ -194,7 +196,7 @@ export class DeadWorkersTask {
         }
       }
     } catch (err) {
-      this.cfg.logger.error(`Failed to check for inactive workers`, {
+      this.logger.error(`Failed to check for inactive workers`, {
         error: err instanceof Error ? err.message : String(err),
         error_stack: err instanceof Error ? err.stack : undefined,
       });

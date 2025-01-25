@@ -13,6 +13,7 @@ export class JobContextImpl implements JobContext {
   private readonly touchFn: () => Promise<void>;
   private readonly storage: JobStorage;
   private readonly jobDefinition: JobDefinition;
+  private readonly shutdownRef: WeakRef<{ isShuttingDown: boolean }>;
 
   constructor(
     storage: JobStorage,
@@ -22,7 +23,8 @@ export class JobContextImpl implements JobContext {
     attempt: number,
     maxRetries: number,
     payload: unknown,
-    touchFn: () => Promise<void>
+    touchFn: () => Promise<void>,
+    shutdownRef: WeakRef<{ isShuttingDown: boolean }>
   ) {
     this.storage = storage;
     this.jobDefinition = jobDefinition;
@@ -32,6 +34,15 @@ export class JobContextImpl implements JobContext {
     this.maxRetries = maxRetries;
     this.payload = payload;
     this.touchFn = touchFn;
+    this.shutdownRef = shutdownRef;
+  }
+
+  /**
+   * Indicates if the scheduler is shutting down and the job should try to gracefully terminate
+   */
+  get isShuttingDown(): boolean {
+    const ref = this.shutdownRef.deref();
+    return ref ? ref.isShuttingDown : false;
   }
 
   /**

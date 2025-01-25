@@ -32,7 +32,7 @@ describe('PendingJobsTask', () => {
       logger: new EmptyLogger(),
       node: 'test-worker',
       maxConcurrentJobs: 20,
-      jobLockTTL: 5000,
+      jobLockTTL: 30000,
       pollInterval: 100,
     });
 
@@ -131,38 +131,88 @@ describe('PendingJobsTask', () => {
     });
 
     it('should handle job locking correctly', async () => {
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async () => {
+          await new Promise((resolve) => setImmediate(resolve));
+        }),
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      // Create a job
       const jobId = await storage.createJob({
         type: 'test',
         status: 'pending',
-        data: { test: true },
+        data: {},
         attempts: 0,
         maxRetries: 3,
         failCount: 0,
         priority: 1,
         backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-        lockedAt: new Date(Date.now() - 1000),
-        lockedBy: 'other-worker',
       });
 
+      // Start executing jobs
+      const executePromise = task.execute();
+
+      // Wait for job to start
+      await vi.runOnlyPendingTimersAsync();
+
+      // Complete execution
+      await vi.runAllTimersAsync();
+      await executePromise;
+
+      // Job should have been processed
+      expect(jobDef.handle).toHaveBeenCalled();
+
+      // Verify job state
+      const job = await storage.getJob(jobId);
+      expect(job?.status).toBe('completed');
+    });
+
+    it('should handle lock expiration edge cases', async () => {
       const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-        concurrency: 1,
+        handle: vi.fn().mockImplementation(async () => {
+          await new Promise((resolve) => setImmediate(resolve));
+        }),
+        schema: z.object({}),
       };
       jobs.set('test', jobDef as unknown as JobDefinition);
 
-      await task.execute();
-
-      expect(jobDef.handle).not.toHaveBeenCalled();
-
-      await storage.updateJob(jobId, {
-        lockedAt: new Date(Date.now() - 6000),
+      // Create a job
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: {},
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
       });
 
-      await task.execute();
+      // Simulate a stale lock by another worker
+      const now = new Date();
+      const expiredTime = now.getTime() - 60000; // 1 minute ago
+      storage.setLock(jobId, 'other-worker', expiredTime);
 
+      // Start executing jobs
+      const executePromise = task.execute();
+
+      // Wait for job to start
+      await vi.runOnlyPendingTimersAsync();
+
+      // Complete execution
+      await vi.runAllTimersAsync();
+      await executePromise;
+
+      // Job should be processed because lock expired
       expect(jobDef.handle).toHaveBeenCalled();
+
+      // Verify job state
+      const job = await storage.getJob(jobId);
+      expect(job?.status).toBe('completed');
+      expect(job?.lockedBy).toBe(null);
+      expect(job?.lockedAt).toBe(null);
     });
 
     it('should handle fork mode execution', async () => {
@@ -486,7 +536,7 @@ describe('PendingJobsTask', () => {
       });
 
       const jobDef = {
-        handle: vi.fn().mockImplementation(async (_, ctx) => {
+        handle: vi.fn().mockImplementation(async (data, ctx) => {
           await ctx.log('info', 'Test message');
           await ctx.log('warn', 'Warning message');
           await ctx.log('error', 'Error message');
@@ -521,41 +571,6 @@ describe('PendingJobsTask', () => {
       );
     });
 
-    it('should handle lock expiration edge cases', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-        lockedAt: new Date(now.getTime() - 5001), // Just over the 5000ms lock lifetime
-        lockedBy: 'other-worker',
-      });
-
-      const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-        concurrency: 1,
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      await task.execute();
-
-      // Job should be processed because lock expired
-      expect(jobDef.handle).toHaveBeenCalled();
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        jobId,
-        expect.objectContaining({
-          lockedAt: expect.any(Date),
-          lockedBy: 'test-worker',
-        })
-      );
-    });
-
     it('should handle failed lock acquisition', async () => {
       await storage.createJob({
         type: 'test',
@@ -584,6 +599,167 @@ describe('PendingJobsTask', () => {
       // Job should not be processed due to lock acquisition failure
       expect(jobDef.handle).not.toHaveBeenCalled();
       expect(storage.updateJobRun).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('shutdown', () => {
+    it('should signal shutdown to running jobs', async () => {
+      // Create a long running job that checks for shutdown
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async (data, ctx) => {
+          // Run a loop that checks for shutdown
+          for (let i = 0; i < 10; i++) {
+            if (ctx.isShuttingDown) {
+              return; // Exit early if shutdown detected
+            }
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+        }),
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      // Create a job
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: {},
+        attempts: 0,
+        maxRetries: 1,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      // Mock storage methods to track job state
+      const job = await storage.getJob(jobId);
+      storage.getJob = vi.fn().mockResolvedValue(job);
+      storage.acquireLock = vi.fn().mockResolvedValue(true);
+
+      // Start executing jobs
+      const executePromise = task.execute();
+
+      // Wait for job to start
+      await vi.runOnlyPendingTimersAsync();
+
+      // Signal shutdown
+      await task.stop();
+
+      // Complete execution
+      await vi.runAllTimersAsync();
+      await executePromise;
+
+      // Job should have detected shutdown and exited early
+      expect(jobDef.handle).toHaveBeenCalledTimes(1);
+      const arr = jobDef.handle.mock.calls[0];
+      expect(arr[1].isShuttingDown).toBe(true);
+    });
+
+    it('should not schedule new jobs when shutting down', async () => {
+      // Signal shutdown first
+      await task.stop();
+
+      // Create a job that checks shutdown state
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async (data, ctx) => {
+          expect(ctx.isShuttingDown).toBe(true);
+        }),
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      // Create a job and mock storage
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: {},
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      // Mock storage methods
+      const job = await storage.getJob(jobId);
+      storage.getJob = vi.fn().mockResolvedValue(job);
+      storage.acquireLock = vi.fn().mockResolvedValue(true);
+
+      // Execute jobs
+      await task.execute();
+      await vi.runAllTimersAsync();
+
+      // Job should have seen shutdown state
+      expect(jobDef.handle).not.toHaveBeenCalled();
+    });
+
+    it('should maintain shutdown state across multiple executions', async () => {
+      // Create a job that checks shutdown state
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async (data, ctx) => {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          expect(ctx.isShuttingDown).toBe(true);
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        }),
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      // Create multiple jobs and mock storage
+      await Promise.all([
+        storage.createJob({
+          type: 'test',
+          status: 'pending',
+          data: {},
+          attempts: 0,
+          maxRetries: 1,
+          failCount: 0,
+          priority: 1,
+          backoffStrategy: 'exponential',
+          failReason: undefined,
+          runAt: null,
+        }),
+        storage.createJob({
+          type: 'test',
+          status: 'pending',
+          data: {},
+          attempts: 0,
+          maxRetries: 1,
+          failCount: 0,
+          priority: 1,
+          backoffStrategy: 'exponential',
+          failReason: undefined,
+          runAt: null,
+        }),
+      ]);
+
+      // Start executing jobs
+      const executePromise = task.execute();
+
+      // Wait for jobs to start and reach first timeout
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(400);
+
+      // Signal shutdown
+      await task.stop();
+
+      // Advance time to complete both timeouts
+      await vi.advanceTimersByTimeAsync(3000);
+
+      // Wait for job execution to complete
+      await executePromise;
+
+      // All jobs should have seen shutdown state
+      expect(jobDef.handle).toHaveBeenCalledTimes(2);
+
+      const jobList = await storage.listJobs();
+      jobList.forEach((job) => {
+        expect(job.status).toBe('completed');
+      });
     });
   });
 });

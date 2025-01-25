@@ -62,6 +62,8 @@ export interface PendingJobsConfig {
 
 export class PendingJobsTask {
   private timer: NodeJS.Timeout | null = null;
+  private readonly shutdownState = { isShuttingDown: false };
+  private readonly shutdownRef = new WeakRef(this.shutdownState);
 
   private readonly cfg: PendingJobsConfig;
   private readonly logger: Logger;
@@ -100,17 +102,27 @@ export class PendingJobsTask {
   /**
    * Stop the scheduled jobs planning task.
    */
-  stop(): void {
+  async stop(): Promise<void> {
+    // Clear the timer
     if (this.timer) {
       clearInterval(this.timer);
       this.timer = null;
     }
+
+    // Signal shutdown
+    this.shutdownState.isShuttingDown = true;
+    this.logger.info('Signaled shutdown to running jobs');
   }
 
   /**
    * Process pending jobs.
    */
   public async execute(): Promise<void> {
+    if (this.shutdownState.isShuttingDown) {
+      this.logger.info('Skipping execution due to shutdown');
+      return;
+    }
+
     const now = new Date();
 
     // Get pending jobs.
@@ -143,6 +155,11 @@ export class PendingJobsTask {
             type: job.type,
           });
           return;
+        } else {
+          this.logger.debug('Acquired global concurrency slot for job', {
+            jobId: job.id,
+            type: job.type,
+          });
         }
 
         return true;
@@ -160,6 +177,11 @@ export class PendingJobsTask {
               type: job.type,
             });
             return;
+          } else {
+            this.logger.debug('Acquired concurrency slot (type limit) for job', {
+              jobId: job.id,
+              type: job.type,
+            });
           }
 
           try {
@@ -172,6 +194,11 @@ export class PendingJobsTask {
               });
               await this.cfg.storage.releaseConcurrencySlot(job.type);
               return;
+            } else {
+              this.logger.debug('Acquired lock for job', {
+                jobId: job.id,
+                type: job.type,
+              });
             }
 
             // Process the job
@@ -241,16 +268,7 @@ export class PendingJobsTask {
     });
 
     // Create job context with touch function.
-    const ctx = new JobContextImpl(
-      this.cfg.storage,
-      jobDef,
-      job.id,
-      jobRunId,
-      attempt,
-      job.maxRetries,
-      job.data,
-      async () => await this.cfg.touchJob(job.id)
-    );
+    const ctx = this.createJobContext(jobDef, job, { id: jobRunId, attempt, startedAt: now });
 
     const startTime = Date.now();
     try {
@@ -262,7 +280,7 @@ export class PendingJobsTask {
         });
         await this.cfg.executeForkMode(jobDef, job, ctx);
       } else {
-        this.logger.debug('Executing job in process', {
+        this.logger.debug('Executing job handler in process', {
           jobId: job.id,
           type: job.type,
         });
@@ -383,6 +401,27 @@ export class PendingJobsTask {
 
       throw error;
     }
+  }
+
+  /**
+   * Create a new job context.
+   */
+  private createJobContext(
+    jobDef: JobDefinition,
+    job: Job,
+    jobRun: { id: string; attempt: number; startedAt: Date }
+  ): JobContextImpl {
+    return new JobContextImpl(
+      this.cfg.storage,
+      jobDef,
+      job.id,
+      jobRun.id,
+      jobRun.attempt,
+      job.maxRetries,
+      job.data,
+      () => this.cfg.touchJob(job.id),
+      this.shutdownRef
+    );
   }
 
   /**

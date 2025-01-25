@@ -67,6 +67,12 @@ export interface SchedulerConfig {
   expiredJobCheckInterval?: number;
 
   /**
+   * Maximum amount of time to wait for running tasks to complete before shutting down the scheduler.
+   * Default: 15 seconds.
+   */
+  shutdownTimeout?: number;
+
+  /**
    * The interval in milliseconds at which to send heartbeats.
    * This is an indication that the worker is still alive.
    * Default: 15 seconds.
@@ -285,6 +291,11 @@ export interface JobContext {
    * The job payload
    */
   payload: unknown;
+
+  /**
+   * Indicates if the scheduler is shutting down and the job should try to gracefully terminate
+   */
+  isShuttingDown: boolean;
 
   /**
    * Log a message at the specified level.

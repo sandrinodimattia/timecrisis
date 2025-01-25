@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobScheduler } from './index.js';
-import { EmptyLogger } from '../logger/index.js';
+import { EmptyLogger, Logger } from '../logger/index.js';
 import { InMemoryJobStorage } from '../storage/memory/index.js';
 import { JobDefinitionNotFoundError, JobAlreadyRegisteredError } from './types.js';
 
@@ -265,6 +265,122 @@ describe('JobScheduler', () => {
       await vi.advanceTimersByTimeAsync(100); // Wait for next poll interval
       await vi.advanceTimersByTimeAsync(500); // Wait for final batch to complete
       expect(running.length).toBe(0);
+    });
+  });
+
+  describe('shutdown behavior', () => {
+    it('should wait for running jobs to complete during graceful shutdown', async () => {
+      const running: string[] = [];
+      const jobDefinition = {
+        type: 'test-job',
+        schema: z.object({ data: z.string() }),
+        handle: async (data: { data: string }): Promise<void> => {
+          running.push(data.data);
+          await new Promise((resolve) => setTimeout(resolve, 2000)); // Job takes 2 seconds
+          running.splice(running.indexOf(data.data), 1);
+        },
+      };
+
+      scheduler = new JobScheduler({
+        storage,
+        logger: new EmptyLogger(),
+        worker: 'test-node',
+        shutdownTimeout: 5000, // 5 second timeout
+        jobProcessingInterval: 100,
+      });
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(100);
+
+      scheduler.registerJob(jobDefinition);
+      await scheduler.enqueue('test-job', { data: 'job-1' });
+
+      // Wait for job to start
+      await vi.advanceTimersByTimeAsync(100);
+      expect(running.length).toBe(1);
+
+      // Initiate graceful shutdown
+      const stopPromise = scheduler.stop(false);
+
+      // Advance time to complete the job (2000ms)
+      await vi.advanceTimersByTimeAsync(2000);
+
+      await stopPromise;
+      expect(running.length).toBe(0);
+    });
+
+    it('should respect shutdownTimeout when jobs take too long', async () => {
+      const running: string[] = [];
+      const jobDefinition = {
+        type: 'test-job',
+        schema: z.object({ data: z.string() }),
+        handle: async (data: { data: string }): Promise<void> => {
+          running.push(data.data);
+          await new Promise((resolve) => setTimeout(resolve, 10000)); // Job takes 10 seconds
+          running.splice(running.indexOf(data.data), 1);
+        },
+      };
+
+      const loggerWarnMock = vi.fn();
+      const createMockLogger = (name?: string): Logger => ({
+        info: () => {},
+        debug: () => {},
+        warn: loggerWarnMock,
+        error: () => {},
+        child: (childName: string) => createMockLogger(childName)
+      });
+      
+      scheduler = new JobScheduler({
+        storage,
+        logger: createMockLogger(),
+        worker: 'test-node',
+        shutdownTimeout: 2000, // 2 second timeout
+        jobProcessingInterval: 100,
+      });
+      scheduler.start();
+      await vi.advanceTimersByTimeAsync(100);
+
+      scheduler.registerJob(jobDefinition);
+      await scheduler.enqueue('test-job', { data: 'job-1' });
+
+      // Wait for job to start
+      await vi.advanceTimersByTimeAsync(100);
+      expect(running.length).toBe(1);
+
+      // Initiate graceful shutdown
+      const stopPromise = scheduler.stop(false);
+
+      // Advance time past the shutdown timeout
+      await vi.advanceTimersByTimeAsync(2000);
+
+      await stopPromise;
+      expect(running.length).toBe(1); // Job should still be running
+      expect(loggerWarnMock).toHaveBeenCalledWith(
+        expect.stringMatching(/Shutdown timeout of 2000 ms reached with 1 jobs still running/)
+      );
+    });
+
+    it('should force stop immediately when force=true', async () => {
+      const running: string[] = [];
+      const jobDefinition = {
+        type: 'test-job',
+        schema: z.object({ data: z.string() }),
+        handle: async (data: { data: string }): Promise<void> => {
+          running.push(data.data);
+          await new Promise((resolve) => setTimeout(resolve, 5000)); // Job takes 5 seconds
+          running.splice(running.indexOf(data.data), 1);
+        },
+      };
+
+      scheduler.registerJob(jobDefinition);
+      await scheduler.enqueue('test-job', { data: 'job-1' });
+
+      // Wait for job to start
+      await vi.advanceTimersByTimeAsync(100);
+      expect(running.length).toBe(1);
+
+      // Force stop
+      await scheduler.stop(true);
+      expect(running.length).toBe(1); // Job is still in running state but scheduler is stopped
     });
   });
 });

@@ -2,6 +2,7 @@ import cronParser from 'cron-parser';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { EmptyLogger } from '../logger/index.js';
+import { LeaderElection } from '../leader/index.js';
 import { MockJobStorage } from '../storage/mock/index.js';
 import { ScheduledJob } from '../storage/schemas/index.js';
 import { ScheduledJobsTask } from './scheduled-jobs.js';
@@ -10,17 +11,27 @@ describe('ScheduledJobsTask', () => {
   let storage: MockJobStorage;
   let enqueueJob: <T>(type: string, data: T) => Promise<void>;
   let task: ScheduledJobsTask;
+  let leader: LeaderElection;
   const now = new Date('2025-01-23T00:00:00.000Z');
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
 
+    leader = new LeaderElection({
+      node: 'test-leader',
+      storage,
+      lockTTL: 1000,
+    });
+
+    // Mock leader election to return true by default
+    vi.spyOn(leader, 'isCurrentLeader').mockReturnValue(true);
     storage = new MockJobStorage();
     enqueueJob = vi.fn().mockResolvedValue(undefined);
     task = new ScheduledJobsTask({
       storage,
       logger: new EmptyLogger(),
+      leaderElection: leader,
       enqueueJob,
       pollInterval: 1000,
       scheduledJobMaxStaleAge: 1000,
@@ -195,6 +206,7 @@ describe('ScheduledJobsTask', () => {
     const customMaxStaleAge = 10 * 60 * 1000; // 10 minutes
     task = new ScheduledJobsTask({
       storage,
+      leaderElection: leader,
       logger: new EmptyLogger(),
       enqueueJob,
       pollInterval: 1000,

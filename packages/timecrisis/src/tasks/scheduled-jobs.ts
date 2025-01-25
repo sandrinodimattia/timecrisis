@@ -4,6 +4,7 @@ import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
 import { parseDuration } from '../lib/duration.js';
 import { ScheduledJob } from '../storage/schemas/index.js';
+import { LeaderElection } from '../leader/index.js';
 
 export interface ScheduledJobsConfig {
   /**
@@ -15,6 +16,11 @@ export interface ScheduledJobsConfig {
    * Storage backend.
    */
   storage: JobStorage;
+
+  /**
+   * Leader election process.
+   */
+  leaderElection: LeaderElection;
 
   /**
    * Maximum age of a stale nextRunAt value in milliseconds
@@ -41,7 +47,7 @@ export class ScheduledJobsTask {
 
   constructor(config: ScheduledJobsConfig) {
     this.cfg = config;
-    this.logger = config.logger.child('ScheduledJobsTask');
+    this.logger = config.logger.child('scheduled-jobs');
   }
 
   /**
@@ -75,6 +81,11 @@ export class ScheduledJobsTask {
    * Check and process scheduled jobs that are due to run.
    */
   public async execute(): Promise<void> {
+    // Only run this task if we are the leader
+    if (!this.cfg.leaderElection.isCurrentLeader()) {
+      return;
+    }
+
     // Skip if already running
     if (this.isExecuting) {
       return;
