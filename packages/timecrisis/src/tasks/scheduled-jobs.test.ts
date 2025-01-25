@@ -18,7 +18,13 @@ describe('ScheduledJobsTask', () => {
 
     storage = new MockJobStorage();
     enqueueJob = vi.fn().mockResolvedValue(undefined);
-    task = new ScheduledJobsTask(storage, enqueueJob);
+    task = new ScheduledJobsTask({
+      storage,
+      logger: new EmptyLogger(),
+      enqueueJob,
+      scheduleInterval: 1000,
+      maxStaleAge: 1000,
+    });
 
     // Clear all mocks before each test
     vi.clearAllMocks();
@@ -187,7 +193,11 @@ describe('ScheduledJobsTask', () => {
 
   it('should respect custom maxStaleAge configuration', async () => {
     const customMaxStaleAge = 10 * 60 * 1000; // 10 minutes
-    task = new ScheduledJobsTask(storage, enqueueJob, new EmptyLogger(), {
+    task = new ScheduledJobsTask({
+      storage,
+      logger: new EmptyLogger(),
+      enqueueJob,
+      scheduleInterval: 1000,
       maxStaleAge: customMaxStaleAge,
     });
 
