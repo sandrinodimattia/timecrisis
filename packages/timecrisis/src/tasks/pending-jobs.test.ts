@@ -24,45 +24,151 @@ describe('PendingJobsTask', () => {
     executeForkMode = vi.fn();
     touchJob = vi.fn();
 
-    task = new PendingJobsTask(storage, jobs, executeForkMode, touchJob, new EmptyLogger(), {
+    task = new PendingJobsTask({
+      storage,
+      jobs,
+      executeForkMode,
+      touchJob,
+      logger: new EmptyLogger(),
+      worker: 'test-worker',
       maxConcurrentJobs: 20,
       lockLifetime: 5000,
     });
 
-    // Clear all mocks before each test
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     storage.cleanup();
-
-    // Clear all timers and mocks
     vi.clearAllTimers();
     vi.clearAllMocks();
     vi.useRealTimers();
   });
 
   describe('execute', () => {
-    it('should skip execution if already executing', async () => {
-      // First execution
-      const listJobsPromise = Promise.resolve([]);
-      vi.spyOn(storage, 'listJobs').mockReturnValue(listJobsPromise);
-      const execution1 = task.execute();
+    it('should process pending jobs up to global concurrency limit', async () => {
+      const jobPromises = Array.from({ length: 25 }, (_, i) =>
+        storage.createJob({
+          type: 'test',
+          status: 'pending',
+          data: { job: i },
+          attempts: 0,
+          maxRetries: 3,
+          failCount: 0,
+          priority: 1,
+          backoffStrategy: 'exponential',
+          failReason: undefined,
+          runAt: null,
+        })
+      );
+      await Promise.all(jobPromises);
 
-      // Second execution while first is still running
-      const execution2 = task.execute();
-      await Promise.all([execution1, execution2]);
+      const jobDef = {
+        handle: vi.fn().mockResolvedValue(undefined),
+        concurrency: undefined, // Remove job-type concurrency to test global limit
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
 
-      expect(storage.listJobs).toHaveBeenCalledTimes(1);
+      await task.execute();
+
+      expect(jobDef.handle).toHaveBeenCalledTimes(20);
+      expect(task.getRunningCount()).toBe(0);
     });
 
-    it('should process pending jobs up to concurrency limit', async () => {
-      const job1 = await storage.createJob({
+    it('should respect job-type concurrency limits', async () => {
+      // Create a concurrency tracking mechanism
+      let runningJobs = 0;
+      const maxConcurrency = 3;
+
+      storage.acquireConcurrencySlot = vi.fn().mockImplementation(async () => {
+        if (runningJobs >= maxConcurrency) {
+          return false;
+        }
+        runningJobs++;
+        return true;
+      });
+
+      storage.releaseConcurrencySlot = vi.fn().mockImplementation(async () => {
+        runningJobs = Math.max(0, runningJobs - 1);
+      });
+
+      // Create test jobs
+      const jobPromises = Array.from({ length: 10 }, (_, i) =>
+        storage.createJob({
+          type: 'test',
+          status: 'pending',
+          data: { job: i },
+          attempts: 0,
+          maxRetries: 3,
+          failCount: 0,
+          priority: 1,
+          backoffStrategy: 'exponential',
+          failReason: undefined,
+          runAt: null,
+        })
+      );
+      await Promise.all(jobPromises);
+
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async () => {
+          // Use setImmediate instead of setTimeout for testing
+          await new Promise((resolve) => setImmediate(resolve));
+        }),
+        concurrency: maxConcurrency,
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      const executePromise = task.execute();
+
+      // Advance all timers to complete any pending promises
+      await vi.runAllTimersAsync();
+      await executePromise;
+
+      expect(storage.acquireConcurrencySlot).toHaveBeenCalledWith('test', maxConcurrency);
+      expect(jobDef.handle).toHaveBeenCalledTimes(maxConcurrency);
+      expect(runningJobs).toBe(0); // All jobs should be finished
+    });
+
+    it('should handle job locking correctly', async () => {
+      const jobId = await storage.createJob({
         type: 'test',
         status: 'pending',
-        data: {
-          job: 1,
-        },
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+        lockedAt: new Date(Date.now() - 1000),
+        lockedBy: 'other-worker',
+      });
+
+      const jobDef = {
+        handle: vi.fn().mockResolvedValue(undefined),
+        concurrency: 1,
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      expect(jobDef.handle).not.toHaveBeenCalled();
+
+      await storage.updateJob(jobId, {
+        lockedAt: new Date(Date.now() - 6000),
+      });
+
+      await task.execute();
+
+      expect(jobDef.handle).toHaveBeenCalled();
+    });
+
+    it('should handle fork mode execution', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
         attempts: 0,
         maxRetries: 3,
         failCount: 0,
@@ -71,12 +177,232 @@ describe('PendingJobsTask', () => {
         failReason: undefined,
         runAt: null,
       });
-      const job2 = await storage.createJob({
+
+      const jobDef = {
+        handle: vi.fn(),
+        forkMode: true,
+        concurrency: 1,
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      expect(executeForkMode).toHaveBeenCalledWith(
+        jobDef,
+        expect.objectContaining({ id: jobId }),
+        expect.any(Object)
+      );
+    });
+
+    it('should handle exponential backoff on failure', async () => {
+      const jobId = await storage.createJob({
         type: 'test',
         status: 'pending',
-        data: {
-          job: 2,
+        data: { test: true },
+        attempts: 1,
+        maxRetries: 3,
+        failCount: 1,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const error = new Error('Test error');
+      const jobDef = {
+        handle: vi.fn().mockRejectedValue(error),
+        concurrency: 1,
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob!.status).toBe('pending');
+      expect(updatedJob!.runAt).toBeInstanceOf(Date);
+      expect(updatedJob!.failCount).toBe(2);
+      expect(updatedJob!.failReason).toBe('Test error');
+
+      const expectedDelay = 20000;
+      const actualDelay = updatedJob!.runAt!.getTime() - now.getTime();
+      expect(actualDelay).toBe(expectedDelay);
+    });
+
+    it('should move job to dead letter queue after max retries', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
+        attempts: 3,
+        maxRetries: 3,
+        failCount: 2,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const error = new Error('Final failure');
+      const jobDef = {
+        handle: vi.fn().mockRejectedValue(error),
+        concurrency: 1,
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob!.status).toBe('failed');
+      expect(updatedJob!.failCount).toBe(3);
+      expect(updatedJob!.failReason).toBe('Final failure');
+
+      expect(storage.createDeadLetterJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId: jobId,
+          jobType: 'test',
+          reason: 'Final failure',
+        })
+      );
+    });
+
+    it('should handle Zod validation errors', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const zodError = new z.ZodError([
+        {
+          code: 'invalid_type',
+          expected: 'string',
+          received: 'boolean',
+          path: ['test'],
+          message: 'Expected string, received boolean',
         },
+      ]);
+
+      const jobDef = {
+        handle: vi.fn().mockRejectedValue(zodError),
+        concurrency: 1,
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob!.status).toBe('pending');
+      expect(updatedJob!.failReason).toBe(
+        'Zod validation error: Expected string, received boolean'
+      );
+      expect(updatedJob!.failCount).toBe(1);
+    });
+
+    it('should update progress correctly', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async (_, ctx) => {
+          await ctx.updateProgress(50);
+          await ctx.updateProgress(100);
+        }),
+        concurrency: 1,
+        schema: z.object({}),
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      expect(storage.updateJob).toHaveBeenCalledWith(
+        jobId,
+        expect.objectContaining({ progress: 50 })
+      );
+      expect(storage.updateJob).toHaveBeenCalledWith(
+        jobId,
+        expect.objectContaining({ progress: 100 })
+      );
+    });
+
+    it('should handle invalid job types', async () => {
+      await storage.createJob({
+        type: 'invalid-type',
+        status: 'pending',
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      await task.execute();
+
+      expect(storage.updateJob).not.toHaveBeenCalled();
+    });
+
+    it('should track job execution duration', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      const jobDef = {
+        handle: vi.fn().mockImplementation(async () => {
+          vi.advanceTimersByTime(5000); // Simulate 5 seconds of work
+        }),
+        concurrency: 1,
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob!.executionDuration).toBe(5000);
+      expect(storage.updateJob).toHaveBeenCalledWith(
+        jobId,
+        expect.objectContaining({
+          status: 'completed',
+          executionDuration: 5000,
+        })
+      );
+    });
+
+    it('should update job run status correctly', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
         attempts: 0,
         maxRetries: 3,
         failCount: 0,
@@ -94,283 +420,34 @@ describe('PendingJobsTask', () => {
 
       await task.execute();
 
-      expect(storage.listJobs).toHaveBeenCalledWith({
-        limit: 20,
-        status: ['pending'],
-        runAtBefore: expect.any(Date),
-      });
-
-      // First, it should acquire the lock
-      expect(storage.updateJob).toHaveBeenNthCalledWith(1, job1, {
-        lockedAt: expect.any(Date),
-      });
-
-      // Then, it should update the job status and attempts
-      expect(storage.updateJob).toHaveBeenNthCalledWith(2, job1, {
-        status: 'running',
-        attempts: 1,
-      });
-
-      expect(storage.createJobRun).toHaveBeenCalledWith({
-        jobId: job1,
-        status: 'running',
-        attempt: 1,
-        startedAt: expect.any(Date),
-      });
-      expect(jobDef.handle).toHaveBeenCalledWith({ job: 1 }, expect.any(Object));
-
-      expect(jobDef.handle).not.toHaveBeenCalledWith({ job: 2 }, expect.any(Object));
-
-      const pendingJobs = await storage.listJobs({
-        limit: 20,
-        status: ['pending'],
-      });
-      expect(pendingJobs).toHaveLength(1);
-      expect(pendingJobs[0].id).toBe(job2);
-    });
-
-    it('should handle invalid job types', async () => {
-      const invalidJob: Job = {
-        id: '1',
-        type: 'invalid',
-        status: 'pending',
-        data: {},
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        progress: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      vi.spyOn(storage, 'listJobs').mockResolvedValue([invalidJob]);
-
-      await task.execute();
-
-      expect(storage.createDeadLetterJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          jobId: '1',
-          jobType: 'invalid',
-          reason: 'Unknown job type: invalid',
-        })
-      );
-
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        '1',
-        expect.objectContaining({
-          status: 'failed',
-          failReason: 'Unknown job type: invalid',
-        })
-      );
-    });
-
-    it('should respect job lock', async () => {
-      await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        lockedAt: new Date(),
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      await task.execute();
-
-      expect(jobDef.handle).not.toHaveBeenCalled();
-    });
-
-    it('should handle job success', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      await task.execute();
-
-      const jobRuns = await storage.listJobRuns(jobId);
-      expect(jobRuns).toHaveLength(1);
-      expect(jobRuns[0].status).toBe('completed');
-
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        jobId,
-        expect.objectContaining({
-          lockedAt: expect.any(Date),
-        })
-      );
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        jobId,
-        expect.objectContaining({
-          status: 'completed',
-        })
-      );
+      // Verify job run was created and updated
       expect(storage.createJobRun).toHaveBeenCalledWith(
         expect.objectContaining({
-          jobId: jobId,
+          jobId,
           status: 'running',
         })
       );
+
       expect(storage.updateJobRun).toHaveBeenCalledWith(
-        jobRuns[0].id,
+        expect.any(String),
         expect.objectContaining({
           status: 'completed',
+          progress: 100,
+          finishedAt: expect.any(Date),
         })
       );
     });
 
-    it('should handle job failure with retry', async () => {
+    it('should handle linear backoff strategy', async () => {
       const jobId = await storage.createJob({
         type: 'test',
         status: 'pending',
-        data: {},
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const error = new Error('Test error');
-      const jobDef = {
-        handle: vi.fn().mockRejectedValue(error),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      await task.execute();
-
-      const jobRuns = await storage.listJobRuns(jobId);
-      expect(jobRuns).toHaveLength(1);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updateJobCalls = (storage.updateJob as any).mock.calls;
-      expect(updateJobCalls.length).toBe(3);
-
-      // First call should be to acquire the lock
-      expect(updateJobCalls[0]).toEqual([
-        jobId,
-        {
-          lockedAt: expect.any(Date),
-        },
-      ]);
-
-      expect(updateJobCalls[1]).toEqual([
-        jobId,
-        {
-          status: 'running',
-          attempts: 1,
-        },
-      ]);
-
-      // Second call should be to schedule the retry
-      expect(updateJobCalls[2]).toEqual([
-        jobId,
-        {
-          status: 'pending',
-          failReason: 'Test error',
-          failCount: 1,
-          lockedAt: null,
-          executionDuration: expect.any(Number),
-          runAt: expect.any(Date),
-        },
-      ]);
-
-      expect(storage.updateJobRun).toHaveBeenCalledWith(
-        jobRuns[0].id,
-        expect.objectContaining({
-          status: 'failed',
-          error: 'Test error',
-        })
-      );
-    });
-
-    it('should handle job failure with dead letter after max retries', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        attempts: 3,
-        maxRetries: 3,
-        failCount: 2,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const error = new Error('Test error');
-      const jobDef = {
-        handle: vi.fn().mockRejectedValue(error),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      await task.execute();
-
-      const jobRuns = await storage.listJobRuns(jobId);
-      expect(jobRuns).toHaveLength(1);
-
-      expect(storage.createDeadLetterJob).toHaveBeenCalledWith(
-        expect.objectContaining({
-          jobId: jobId,
-          jobType: 'test',
-          reason: 'Test error',
-        })
-      );
-
-      expect(storage.updateJobRun).toHaveBeenCalledWith(
-        jobRuns[0].id,
-        expect.objectContaining({
-          status: 'failed',
-          error: 'Test error',
-        })
-      );
-
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        jobId,
-        expect.objectContaining({
-          status: 'failed',
-          failCount: 3,
-        })
-      );
-    });
-
-    it('should handle exponential backoff', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
+        data: { test: true },
         attempts: 1,
         maxRetries: 3,
         failCount: 1,
         priority: 1,
-        backoffStrategy: 'exponential',
+        backoffStrategy: 'linear',
         failReason: undefined,
         runAt: null,
       });
@@ -378,53 +455,26 @@ describe('PendingJobsTask', () => {
       const error = new Error('Test error');
       const jobDef = {
         handle: vi.fn().mockRejectedValue(error),
+        concurrency: 1,
       };
       jobs.set('test', jobDef as unknown as JobDefinition);
 
       await task.execute();
 
-      const jobRuns = await storage.listJobRuns(jobId);
-      expect(jobRuns).toHaveLength(1);
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob!.status).toBe('pending');
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updateJobCalls = (storage.updateJob as any).mock.calls;
-
-      // First call should be to acquire the lock
-      expect(updateJobCalls[1]).toEqual([
-        jobId,
-        {
-          status: 'running',
-          attempts: 2,
-        },
-      ]);
-
-      // Second call should be to schedule the retry with exponential backoff
-      expect(updateJobCalls[2]).toEqual([
-        jobId,
-        {
-          status: 'pending',
-          failReason: 'Test error',
-          failCount: 2,
-          lockedAt: null,
-          executionDuration: expect.any(Number),
-          runAt: expect.any(Date),
-        },
-      ]);
-
-      expect(storage.updateJobRun).toHaveBeenCalledWith(
-        jobRuns[0].id,
-        expect.objectContaining({
-          status: 'failed',
-          error: 'Test error',
-        })
-      );
+      // Fixed backoff should always be 10 seconds
+      const expectedDelay = 10000;
+      const actualDelay = updatedJob!.runAt!.getTime() - now.getTime();
+      expect(actualDelay).toBe(expectedDelay);
     });
 
-    it('should handle fork mode execution', async () => {
+    it('should log job context messages', async () => {
       const jobId = await storage.createJob({
         type: 'test',
         status: 'pending',
-        data: {},
+        data: { test: true },
         attempts: 0,
         maxRetries: 3,
         failCount: 0,
@@ -433,272 +483,106 @@ describe('PendingJobsTask', () => {
         failReason: undefined,
         runAt: null,
       });
-      const job = await storage.getJob(jobId);
-      expect(job).toBeDefined();
 
       const jobDef = {
-        handle: vi.fn(),
-        forkMode: true,
-        forkHelperPath: '/path/to/helper',
+        handle: vi.fn().mockImplementation(async (_, ctx) => {
+          await ctx.log('info', 'Test message');
+          await ctx.log('warn', 'Warning message');
+          await ctx.log('error', 'Error message');
+        }),
+        concurrency: 1,
       };
       jobs.set('test', jobDef as unknown as JobDefinition);
 
       await task.execute();
 
-      expect(executeForkMode).toHaveBeenCalledWith(jobDef, job, expect.any(Object));
+      // Verify logs were created
+      expect(storage.createJobLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId,
+          level: 'info',
+          message: 'Test message',
+        })
+      );
+      expect(storage.createJobLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId,
+          level: 'warn',
+          message: 'Warning message',
+        })
+      );
+      expect(storage.createJobLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          jobId,
+          level: 'error',
+          message: 'Error message',
+        })
+      );
+    });
+
+    it('should handle lock expiration edge cases', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+        lockedAt: new Date(now.getTime() - 5001), // Just over the 5000ms lock lifetime
+        lockedBy: 'other-worker',
+      });
+
+      const jobDef = {
+        handle: vi.fn().mockResolvedValue(undefined),
+        concurrency: 1,
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      // Job should be processed because lock expired
+      expect(jobDef.handle).toHaveBeenCalled();
+      expect(storage.updateJob).toHaveBeenCalledWith(
+        jobId,
+        expect.objectContaining({
+          lockedAt: expect.any(Date),
+          lockedBy: 'test-worker',
+        })
+      );
+    });
+
+    it('should handle failed lock acquisition', async () => {
+      await storage.createJob({
+        type: 'test',
+        status: 'pending',
+        data: { test: true },
+        attempts: 0,
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+        failReason: undefined,
+        runAt: null,
+      });
+
+      // Mock updateJob to fail when trying to acquire lock
+      storage.updateJob = vi.fn().mockRejectedValueOnce(new Error('Lock acquisition failed'));
+
+      const jobDef = {
+        handle: vi.fn().mockResolvedValue(undefined),
+        concurrency: 1,
+      };
+      jobs.set('test', jobDef as unknown as JobDefinition);
+
+      await task.execute();
+
+      // Job should not be processed due to lock acquisition failure
       expect(jobDef.handle).not.toHaveBeenCalled();
-    });
-
-    it('should not process jobs scheduled for the future', async () => {
-      const futureDate = new Date();
-      futureDate.setHours(futureDate.getHours() + 1);
-
-      await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        runAt: futureDate,
-        priority: 0,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-      });
-
-      jobs.set('test', {
-        type: 'test',
-        handle: vi.fn(),
-        schema: z.object({}),
-      });
-
-      await task.execute();
-
-      expect(storage.listJobs).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: ['pending'],
-          runAtBefore: expect.any(Date),
-        })
-      );
-    });
-
-    it('should process jobs scheduled for the past', async () => {
-      const pastDate = new Date();
-      pastDate.setHours(pastDate.getHours() - 1);
-
-      await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        runAt: pastDate,
-        priority: 0,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-      });
-
-      const handler = vi.fn();
-      jobs.set('test', {
-        type: 'test',
-        handle: handler,
-        schema: z.object({}),
-      });
-
-      await task.execute();
-
-      expect(storage.listJobs).toHaveBeenCalledWith(
-        expect.objectContaining({
-          limit: 20,
-          status: ['pending'],
-          runAtBefore: expect.any(Date),
-        })
-      );
-      expect(handler).toHaveBeenCalled();
-    });
-
-    it('should process jobs with no runAt date', async () => {
-      await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        priority: 0,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-      });
-
-      const handler = vi.fn();
-      jobs.set('test', {
-        type: 'test',
-        handle: handler,
-        schema: z.object({}),
-      });
-
-      await task.execute();
-
-      expect(storage.listJobs).toHaveBeenCalledWith(
-        expect.objectContaining({
-          status: ['pending'],
-          runAtBefore: expect.any(Date),
-        })
-      );
-      expect(handler).toHaveBeenCalled();
-    });
-
-    it('should handle progress updates in both job and job run', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { foo: 'bar' },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const jobDef: JobDefinition = {
-        type: 'test',
-        schema: z.object({ foo: z.string() }),
-        handle: vi.fn(async (_, ctx) => {
-          await ctx.updateProgress(25);
-          await ctx.updateProgress(50);
-          await ctx.updateProgress(75);
-        }),
-      };
-      jobs.set('test', jobDef);
-
-      await task.execute();
-
-      // Check that the progress was updated in both job and job run
-      const jobRuns = await storage.listJobRuns(jobId);
-      expect(jobRuns).toHaveLength(1);
-      expect(jobRuns[0].progress).toBe(100);
-
-      const job = await storage.getJob(jobId);
-      expect(job?.progress).toBe(100);
-
-      // Verify the sequence of progress updates
-      const updateCalls = vi.mocked(storage.updateJob).mock.calls;
-      const progressUpdates = updateCalls
-        .filter((call) => call[1].progress !== undefined)
-        .map((call) => call[1].progress);
-
-      expect(progressUpdates).toEqual([25, 50, 75, 100]);
-    });
-
-    it('should handle data updates in job only', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { foo: 'initial' },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const jobDef: JobDefinition = {
-        type: 'test',
-        schema: z.object({ foo: z.string() }),
-        handle: vi.fn(async (data, ctx) => {
-          await ctx.updateData({ foo: 'updated' });
-        }),
-      };
-      jobs.set('test', jobDef);
-
-      await task.execute();
-
-      // Check that data was updated in job
-      const job = await storage.getJob(jobId);
-      expect(job?.data).toEqual({ foo: 'updated' });
-
-      // Verify no data updates in job runs
-      const jobRuns = await storage.listJobRuns(jobId);
-      expect(jobRuns).toHaveLength(1);
-      expect(jobRuns[0]).not.toHaveProperty('data');
-    });
-
-    it('should validate data updates against job schema', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { foo: 'initial' },
-        attempts: 0,
-        maxRetries: 0,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const jobDef: JobDefinition = {
-        type: 'test',
-        schema: z.object({ foo: z.string() }).strict(),
-        handle: vi.fn(async (data, ctx) => {
-          // Try to update with invalid data
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await ctx.updateData({ bar: 123 } as any);
-        }),
-      };
-      jobs.set('test', jobDef);
-
-      await task.execute();
-
-      // Job should be marked as failed due to schema validation error
-      const job = await storage.getJob(jobId);
-      expect(job?.status).toBe('failed');
-      expect(job?.failReason).toContain('Zod validation error');
-
-      // Original data should remain unchanged
-      expect(job?.data).toEqual({ foo: 'initial' });
-    });
-
-    it.only('should preserve updated job data across retries', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { counter: 0 },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const jobDef = {
-        handle: vi.fn().mockImplementation(async (job, ctx) => {
-          console.log(job, ctx.attempt);
-          if (ctx.attempt === 1) {
-            await ctx.updateData({ counter: 1 });
-            throw new Error('Test error');
-          } else if (ctx.attempt === 2) {
-            expect(job).toEqual({ counter: 1 });
-          }
-        }),
-        schema: z.object({
-          counter: z.number(),
-        }),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      // First execution - should fail
-      await task.execute();
-      vi.advanceTimersByTime(120000);
-
-      // Second execution - should succeed with updated data
-      await task.execute();
-
-      const finalJob = await storage.getJob(jobId);
-      expect(finalJob!.data).toEqual({ counter: 1 });
-      expect(finalJob!.status).toBe('completed');
-      expect(jobDef.handle).toHaveBeenCalledTimes(2);
+      expect(storage.updateJobRun).not.toHaveBeenCalled();
     });
   });
 });

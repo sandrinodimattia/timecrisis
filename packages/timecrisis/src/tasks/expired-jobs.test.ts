@@ -36,8 +36,12 @@ describe('ExpiredJobsTask', () => {
 
     storage = new MockJobStorage();
     leaderElection = createMockLeaderElection();
-    task = new ExpiredJobsTask(storage, leaderElection, new EmptyLogger(), {
+    task = new ExpiredJobsTask({
+      storage,
+      leaderElection,
+      logger: new EmptyLogger(),
       lockLifetime: 300000,
+      cleanupInterval: 200,
     });
   });
 
@@ -352,6 +356,211 @@ describe('ExpiredJobsTask', () => {
       status: 'failed',
       finishedAt: now,
       error: 'Job lock expired',
+    });
+  });
+
+  it('should still update the job even if no run exists', async () => {
+    const jobId = await storage.createJob({
+      type: 'test',
+      data: {},
+      priority: 0,
+      status: 'running',
+      attempts: 0,
+      maxRetries: 3,
+      backoffStrategy: 'exponential',
+      failCount: 0,
+      lockedAt: new Date(now.getTime() - 400000),
+    });
+
+    await task.execute();
+
+    // Should still update the job even if no run exists
+    expect(storage.updateJob).toHaveBeenCalledWith(jobId, {
+      status: 'pending',
+      lockedAt: null,
+      failCount: 1,
+      failReason: 'Job lock expired',
+    });
+  });
+
+  describe('start/stop functionality', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.clearAllTimers();
+      task.stop();
+    });
+
+    it('should execute immediately on start', async () => {
+      const executeSpy = vi.spyOn(task, 'execute');
+      await task.start();
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should execute periodically after start', async () => {
+      const executeSpy = vi.spyOn(task, 'execute');
+      await task.start();
+
+      // First execution happens immediately
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+
+      // Advance timer by cleanup interval
+      await vi.advanceTimersByTimeAsync(200);
+      expect(executeSpy).toHaveBeenCalledTimes(2);
+
+      // Advance timer again
+      await vi.advanceTimersByTimeAsync(200);
+      expect(executeSpy).toHaveBeenCalledTimes(3);
+    });
+
+    it('should stop executing after stop is called', async () => {
+      const executeSpy = vi.spyOn(task, 'execute');
+      await task.start();
+
+      // First execution happens immediately
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+
+      // Advance timer by cleanup interval
+      await vi.advanceTimersByTimeAsync(200);
+      expect(executeSpy).toHaveBeenCalledTimes(2);
+
+      // Stop the task
+      task.stop();
+
+      // Advance timer again
+      await vi.advanceTimersByTimeAsync(200);
+      expect(executeSpy).toHaveBeenCalledTimes(2); // Should not increase
+    });
+
+    it('should handle errors during periodic execution', async () => {
+      const error = new Error('Test error');
+      const executeSpy = vi.spyOn(task, 'execute').mockRejectedValueOnce(error);
+      const loggerSpy = vi.spyOn(task['cfg'].logger, 'error');
+
+      // Start the task - this will trigger the first execution
+      await task.start();
+
+      // Verify error was logged
+      expect(executeSpy).toHaveBeenCalledTimes(1);
+      expect(loggerSpy).toHaveBeenCalledWith(
+        'Failed to execute expired jobs check',
+        expect.objectContaining({
+          error: 'Test error',
+          error_stack: expect.any(String),
+        })
+      );
+
+      // Reset the mock to not throw on next execution
+      executeSpy.mockResolvedValueOnce(undefined);
+
+      // Should continue executing after error
+      await vi.advanceTimersByTimeAsync(200);
+      expect(executeSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle multiple job runs with only one running', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        data: {},
+        priority: 0,
+        status: 'running',
+        attempts: 0,
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        failCount: 0,
+        lockedAt: new Date(now.getTime() - 400000),
+      });
+
+      // Create multiple runs, only one running
+      await storage.createJobRun({
+        jobId,
+        status: 'completed',
+        startedAt: new Date(now.getTime() - 500000),
+        finishedAt: new Date(now.getTime() - 450000),
+        attempt: 1,
+      });
+
+      const runId = await storage.createJobRun({
+        jobId,
+        status: 'running',
+        startedAt: new Date(now.getTime() - 400000),
+        attempt: 2,
+      });
+
+      await task.execute();
+
+      // Should only update the running job run
+      expect(storage.updateJobRun).toHaveBeenCalledTimes(1);
+      expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
+        status: 'failed',
+        finishedAt: now,
+        error: 'Job lock expired',
+      });
+    });
+
+    it('should handle leadership changes during execution', async () => {
+      // Set up a job that would be processed
+      const jobId = await storage.createJob({
+        type: 'test',
+        data: {},
+        priority: 0,
+        status: 'running',
+        attempts: 0,
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        failCount: 0,
+        lockedAt: new Date(now.getTime() - 400000),
+      });
+
+      // Mock leadership change after job listing
+      let isLeader = true;
+      vi.spyOn(leaderElection, 'isCurrentLeader').mockImplementation(() => {
+        isLeader = !isLeader; // Toggle leadership
+        return isLeader;
+      });
+
+      await task.start();
+
+      // Should not process any jobs after leadership is lost
+      expect(storage.updateJob).not.toHaveBeenCalledWith(jobId);
+      expect(storage.updateJobRun).not.toHaveBeenCalled();
+    });
+
+    it('should handle errors during job updates', async () => {
+      const jobId = await storage.createJob({
+        type: 'test',
+        data: {},
+        priority: 0,
+        status: 'running',
+        attempts: 0,
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        failCount: 0,
+        lockedAt: new Date(now.getTime() - 400000),
+      });
+
+      const runId = await storage.createJobRun({
+        jobId,
+        status: 'running',
+        startedAt: new Date(now.getTime() - 400000),
+        attempt: 1,
+      });
+
+      // Mock updateJob to fail
+      storage.updateJob = vi.fn().mockRejectedValueOnce(new Error('Update failed'));
+
+      await task.execute();
+
+      // Should still try to update the job run even if job update fails
+      expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
+        status: 'failed',
+        finishedAt: now,
+        error: 'Job lock expired',
+      });
     });
   });
 });

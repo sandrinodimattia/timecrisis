@@ -47,7 +47,14 @@ export class DeadWorkersTask {
    */
   async start(): Promise<void> {
     // Execute immediately on start
-    await this.execute();
+    try {
+      await this.execute();
+    } catch (err) {
+      this.cfg.logger.error(`Failed to execute dead workers check`, {
+        error: err instanceof Error ? err.message : String(err),
+        error_stack: err instanceof Error ? err.stack : undefined,
+      });
+    }
 
     // Start the check timer
     this.timer = setInterval(async () => {

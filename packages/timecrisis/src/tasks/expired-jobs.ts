@@ -2,63 +2,120 @@ import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
 import { LeaderElection } from '../leader/index.js';
 
-export class ExpiredJobsTask {
-  private storage: JobStorage;
-  private leaderElection: LeaderElection;
-  private logger: Logger;
-  private opts: { lockLifetime: number };
+interface ExpiredJobsTaskConfig {
+  /**
+   * Logger.
+   */
+  logger: Logger;
 
-  constructor(
-    storage: JobStorage,
-    leaderElection: LeaderElection,
-    logger: Logger,
-    opts: { lockLifetime: number }
-  ) {
-    this.storage = storage;
-    this.leaderElection = leaderElection;
-    this.logger = logger.child('expired-jobs');
-    this.opts = opts;
+  /**
+   * Storage backend.
+   */
+  storage: JobStorage;
+
+  /**
+   * Leader election mechanism to determine the current leader.
+   */
+  leaderElection: LeaderElection;
+
+  /**
+   * Time after which a lock is considered expired.
+   */
+  lockLifetime: number;
+
+  /**
+   * Interval at which expired jobs are checked.
+   */
+  cleanupInterval: number;
+}
+
+export class ExpiredJobsTask {
+  private timer: NodeJS.Timeout | null = null;
+
+  private cfg: ExpiredJobsTaskConfig;
+  private logger: Logger;
+
+  constructor(config: ExpiredJobsTaskConfig) {
+    this.cfg = config;
+    this.logger = config.logger.child('expired-jobs');
+  }
+
+  /**
+   * Start the expired jobs task.
+   * This will begin checking for expired jobs and jobs with a lock that has expired.
+   */
+  async start(): Promise<void> {
+    // Execute immediately on start
+    try {
+      await this.execute();
+    } catch (err) {
+      this.cfg.logger.error(`Failed to execute expired jobs check`, {
+        error: err instanceof Error ? err.message : String(err),
+        error_stack: err instanceof Error ? err.stack : undefined,
+      });
+    }
+
+    // Start the check timer
+    this.timer = setInterval(async () => {
+      try {
+        await this.execute();
+      } catch (err) {
+        this.cfg.logger.error(`Failed to execute expired jobs check`, {
+          error: err instanceof Error ? err.message : String(err),
+          error_stack: err instanceof Error ? err.stack : undefined,
+        });
+      }
+    }, this.cfg.cleanupInterval);
+  }
+
+  /**
+   * Stop the expired jobs task.
+   */
+  stop(): void {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   /**
    * Check for expired jobs and mark them as failed
    */
   public async execute(): Promise<void> {
-    // This only runs on the leader.
-    if (!this.leaderElection.isCurrentLeader()) {
+    // Only run this task if we are the leader
+    if (!this.cfg.leaderElection.isCurrentLeader()) {
       return;
     }
 
-    const now = new Date();
-
-    // Check running jobs
-    const jobs = await this.storage.listJobs({ status: ['pending', 'running'] });
-
-    this.logger.debug('Checking for expired jobs', {
-      runningJobs: jobs.length,
-    });
-
     try {
+      // Check running jobs
+      const jobs = await this.cfg.storage.listJobs({ status: ['pending', 'running'] });
+
+      this.logger.debug('Checking for expired jobs', {
+        runningJobs: jobs.length,
+      });
+
+      const now = new Date();
       for (const job of jobs) {
         try {
           if (job.lockedAt) {
             // Check lock expiration
             const lockAge = now.getTime() - job.lockedAt.getTime();
-            if (lockAge > this.opts.lockLifetime!) {
+            if (lockAge > this.cfg.lockLifetime) {
               this.logger.warn('Job lock expired', {
                 jobId: job.id,
                 type: job.type,
                 lockAge,
-                lockLifetime: this.opts.lockLifetime,
+                lockLifetime: this.cfg.lockLifetime,
               });
 
               // Get the current job run
-              const runs = await this.storage.listJobRuns(job.id);
+              const runs = await this.cfg.storage.listJobRuns(job.id);
               const currentRun = runs.find((r) => r.status === 'running');
 
               // Update the job run if it exists
               if (currentRun) {
-                await this.storage.updateJobRun(currentRun.id, {
+                await this.cfg.storage.updateJobRun(currentRun.id, {
                   status: 'failed',
                   error: 'Job lock expired',
                   finishedAt: now,
@@ -71,10 +128,10 @@ export class ExpiredJobsTask {
                 });
               }
 
-              // Check if we should retry
+              // Check if we should retry.
               if (job.attempts < job.maxRetries) {
-                // Reset the job to pending for retry
-                await this.storage.updateJob(job.id, {
+                // Reset the job to pending for retry.
+                await this.cfg.storage.updateJob(job.id, {
                   status: 'pending',
                   failReason: 'Job lock expired',
                   failCount: job.failCount + 1,
@@ -88,8 +145,8 @@ export class ExpiredJobsTask {
                   maxRetries: job.maxRetries,
                 });
               } else {
-                // Mark as failed if we've exceeded retries
-                await this.storage.updateJob(job.id, {
+                // Mark as failed if we've exceeded retries.
+                await this.cfg.storage.updateJob(job.id, {
                   status: 'failed',
                   failReason: 'Job lock expired',
                   failCount: job.failCount + 1,
@@ -103,11 +160,10 @@ export class ExpiredJobsTask {
                   maxRetries: job.maxRetries,
                 });
               }
-              continue;
             }
           }
 
-          // Check job expiration - no retry for expired jobs
+          // Check job expiration - no retry for expired jobs.
           if (job.expiresAt && job.expiresAt < now) {
             this.logger.warn('Job expired', {
               jobId: job.id,
@@ -116,12 +172,12 @@ export class ExpiredJobsTask {
             });
 
             // Get the current job run
-            const runs = await this.storage.listJobRuns(job.id);
+            const runs = await this.cfg.storage.listJobRuns(job.id);
             const currentRun = runs.find((r) => r.status === 'running');
 
-            // Update the job run if it exists
+            // Update the job run if it exists.
             if (currentRun) {
-              await this.storage.updateJobRun(currentRun.id, {
+              await this.cfg.storage.updateJobRun(currentRun.id, {
                 status: 'failed',
                 error: 'Job expired',
                 finishedAt: now,
@@ -133,8 +189,8 @@ export class ExpiredJobsTask {
               });
             }
 
-            // Mark as failed immediately without retry
-            await this.storage.updateJob(job.id, {
+            // Mark as failed immediately without retry.
+            await this.cfg.storage.updateJob(job.id, {
               status: 'failed',
               failReason: 'Job expired',
               failCount: job.failCount + 1,

@@ -4,181 +4,205 @@ import { Logger } from '../logger/index.js';
 import { Job } from '../storage/schemas/index.js';
 import { JobStorage } from '../storage/types.js';
 import { JobContextImpl } from '../scheduler/context.js';
+import { GlobalConcurrencyManager } from '../concurrency/global-concurrency.js';
 import { JobContext, JobDefinition, JobDefinitionNotFoundError } from '../scheduler/types.js';
 
 export interface PendingJobsConfig {
   /**
-   * Maximum number of concurrent jobs that can be running at once
-   * Default: 20
+   * Logger.
    */
-  maxConcurrentJobs?: number;
+  logger: Logger;
 
   /**
-   * Lock lifetime in milliseconds
-   * Default: 5 minutes
+   * Job definitions.
    */
-  lockLifetime?: number;
+  jobs: Map<string, JobDefinition>;
+
+  /**
+   * Storage backend.
+   */
+  storage: JobStorage;
+
+  /**
+   * Name of the worker that is performing the job.
+   */
+  worker: string;
+
+  /**
+   * Maximum number of concurrent jobs that can be running at once.
+   */
+  maxConcurrentJobs: number;
+
+  /**
+   * Lock lifetime in milliseconds.
+   */
+  lockLifetime: number;
+
+  /**
+   * Function to touch a job in the storage.
+   * @param jobId
+   * @returns
+   */
+  touchJob: (jobId: string) => Promise<void>;
+
+  /**
+   * Execute the job in fork mode.
+   * @param jobDef Job definition
+   * @param job Job
+   * @param ctx Job context
+   * @returns
+   */
+  executeForkMode: (jobDef: JobDefinition, job: Job, ctx: JobContext) => Promise<void>;
 }
 
 export class PendingJobsTask {
-  private runningCount = 0;
-  private executionCounter: Record<string, number> = {};
-  private isExecuting: boolean = false;
-  private logger: Logger;
-  private maxConcurrentJobs: number;
+  private readonly cfg: PendingJobsConfig;
+  private readonly logger: Logger;
+  private readonly globalConcurrency: GlobalConcurrencyManager;
 
-  constructor(
-    private readonly storage: JobStorage,
-    private readonly jobs: Map<string, JobDefinition>,
-    private readonly executeForkMode: (
-      jobDef: JobDefinition,
-      job: Job,
-      ctx: JobContext
-    ) => Promise<void>,
-    private readonly touchJob: (jobId: string) => Promise<void>,
-    logger: Logger,
-    private readonly opts: PendingJobsConfig = {}
-  ) {
-    this.logger = logger.child('pending-jobs');
-    this.maxConcurrentJobs = opts.maxConcurrentJobs ?? 20;
+  constructor(cfg: PendingJobsConfig) {
+    this.cfg = cfg;
+    this.logger = cfg.logger.child('pending-jobs');
+    this.globalConcurrency = new GlobalConcurrencyManager(this.logger, cfg);
   }
 
   /**
    * Get how many tasks are currently running.
    */
   public getRunningCount(): number {
-    return this.runningCount;
+    return this.globalConcurrency.getRunningCount();
   }
 
   /**
    * Process pending jobs.
    */
   public async execute(): Promise<void> {
-    // Skip if already running.
-    if (this.isExecuting) {
-      return;
-    } else {
-      this.isExecuting = true;
-    }
-
     try {
       const now = new Date();
 
       // Get pending jobs.
-      const pendingJobs = await this.storage.listJobs({
+      const pendingJobs = await this.cfg.storage.listJobs({
         status: ['pending'],
-        limit: this.maxConcurrentJobs,
         runAtBefore: now,
+        limit: this.cfg.maxConcurrentJobs * 2,
       });
 
       this.logger.debug('Processing pending jobs', {
         jobs: pendingJobs.length,
-        maxConcurrentJobs: this.maxConcurrentJobs,
       });
 
-      // Process each pending job.
-      const promises = pendingJobs.map(async (job) => {
-        try {
-          // Skip if we've hit global concurrency limit.
-          if (this.runningCount >= this.maxConcurrentJobs) {
-            this.logger.debug('Skipping job due to global concurrency limit', {
-              jobId: job.id,
-              runningCount: this.runningCount,
-              maxConcurrentJobs: this.maxConcurrentJobs,
-            });
-
-            return;
-          }
-
-          // Skip jobs that we don't support anymore.
-          const jobDef = this.jobs.get(job.type);
+      // Process valid to respect concurrency limits.
+      const promises = pendingJobs
+        .filter((job) => {
+          const jobDef = this.cfg.jobs.get(job.type);
           if (!jobDef) {
-            this.logger.warn('Unknown job type', {
+            this.logger.warn('Invalid job type, skipping job', {
               jobId: job.id,
               type: job.type,
             });
-
-            await this.handleInvalidJob(job);
-            return;
+            return false;
           }
 
-          // Skip if we've hit concurrency limit for this job type.
-          const currentConcurrency = this.executionCounter[job.type] ?? 0;
-          if (currentConcurrency >= (jobDef.concurrency ?? 20)) {
-            this.logger.debug('Skipping job due to type concurrency limit', {
-              jobId: job.id,
-              type: job.type,
-              currentConcurrency,
-              maxConcurrency: jobDef.concurrency ?? 20,
-            });
-            return;
-          }
-
-          // Increment concurrency counters before acquiring lock
-          this.runningCount++;
-          this.executionCounter[job.type] = (this.executionCounter[job.type] || 0) + 1;
-
-          // Try to acquire lock for the job
-          const locked = await this.tryAcquireLock(job);
-          if (!locked) {
-            this.logger.debug('Failed to acquire lock for job', {
+          // Try to acquire global concurrency slot.
+          if (!this.globalConcurrency.acquire(job.id)) {
+            this.logger.debug('Failed to acquire global concurrency slot for job', {
               jobId: job.id,
               type: job.type,
             });
             return;
           }
 
-          // Process the job.
-          await this.processJob(job);
-        } catch (err) {
-          this.logger.error('Error processing job', {
-            jobId: job.id,
-            type: job.type,
-            error: err instanceof Error ? err.message : String(err),
-            error_stack: err instanceof Error ? err.stack : undefined,
-          });
-        } finally {
-          // Decrement concurrency counters
-          this.runningCount = Math.max(0, this.runningCount - 1);
-          this.executionCounter[job.type] = Math.max(0, (this.executionCounter[job.type] || 0) - 1);
-        }
-      });
+          return true;
+        })
+        .map(async (job) => {
+          try {
+            const jobDef = this.cfg.jobs.get(job.type);
+            const maxForType = jobDef!.concurrency ?? this.cfg.maxConcurrentJobs;
 
-      await Promise.allSettled(promises);
+            // Check if concurrency slot is available for this job type.
+            const jobTypeLock = await this.cfg.storage.acquireConcurrencySlot(job.type, maxForType);
+            if (!jobTypeLock) {
+              this.logger.debug('Failed to acquire concurrency slot (type limit) for job', {
+                jobId: job.id,
+                type: job.type,
+              });
+              return;
+            }
+
+            try {
+              // Try to acquire lock for the job
+              const locked = await this.tryAcquireLock(job);
+              if (!locked) {
+                this.logger.debug('Failed to acquire lock for job', {
+                  jobId: job.id,
+                  type: job.type,
+                });
+                await this.cfg.storage.releaseConcurrencySlot(job.type);
+                return;
+              }
+
+              // Process the job
+              await this.processJob(job);
+            } catch (err) {
+              this.logger.error('Error processing job', {
+                jobId: job.id,
+                type: job.type,
+                error: err instanceof Error ? err.message : String(err),
+                error_stack: err instanceof Error ? err.stack : undefined,
+              });
+            } finally {
+              // Release concurrency slot regardless of job success or failure
+              await this.cfg.storage.releaseConcurrencySlot(job.type);
+            }
+          } catch (err) {
+            this.logger.error('Error processing job', {
+              jobId: job.id,
+              type: job.type,
+              error: err instanceof Error ? err.message : String(err),
+              error_stack: err instanceof Error ? err.stack : undefined,
+            });
+          } finally {
+            // Release global concurrency slot
+            this.globalConcurrency.release(job.id);
+          }
+        });
+
+      // Wait for all jobs to complete
+      await Promise.all(promises);
     } catch (err) {
       this.logger.error('Error processing pending jobs', {
         error: err instanceof Error ? err.message : String(err),
         error_stack: err instanceof Error ? err.stack : undefined,
       });
       throw err;
-    } finally {
-      this.isExecuting = false;
     }
   }
 
   /**
-   * Process a job
+   * Process a job.
    */
   private async processJob(job: Job): Promise<void> {
     // Get the job definition.
-    const jobDef = this.jobs.get(job.type);
+    const jobDef = this.cfg.jobs.get(job.type);
     if (!jobDef) {
       throw new JobDefinitionNotFoundError(job.type);
     }
 
+    const now = new Date();
     const attempt = job.attempts + 1;
 
-    // Update job status to running and increment retry count
-    await this.storage.updateJob(job.id, {
+    // Update job status to running and increment retry count.
+    await this.cfg.storage.updateJob(job.id, {
       status: 'running',
       attempts: attempt,
+      startedAt: now,
     });
 
-    // Create a new job run
-    const jobRunId = await this.storage.createJobRun({
+    // Create a new job run.
+    const jobRunId = await this.cfg.storage.createJobRun({
       jobId: job.id,
       status: 'running',
-      startedAt: new Date(),
+      startedAt: now,
       attempt,
     });
 
@@ -190,16 +214,16 @@ export class PendingJobsTask {
       maxAttempts: job.maxRetries,
     });
 
-    // Create job context with touch function
+    // Create job context with touch function.
     const ctx = new JobContextImpl(
-      this.storage,
+      this.cfg.storage,
       jobDef,
       job.id,
       jobRunId,
       attempt,
       job.maxRetries,
       job.data,
-      async () => await this.touchJob(job.id)
+      async () => await this.cfg.touchJob(job.id)
     );
 
     const startTime = Date.now();
@@ -210,7 +234,7 @@ export class PendingJobsTask {
           type: job.type,
           forkHelperPath: jobDef.forkHelperPath,
         });
-        await this.executeForkMode(jobDef, job, ctx);
+        await this.cfg.executeForkMode(jobDef, job, ctx);
       } else {
         this.logger.debug('Executing job in process', {
           jobId: job.id,
@@ -220,17 +244,20 @@ export class PendingJobsTask {
         await jobDef.handle(job.data as typeof jobDef.schema, ctx);
       }
 
-      // Mark success
-      const durationMs = Date.now() - startTime;
-      await this.storage.updateJob(job.id, {
+      const duration = Date.now() - startTime;
+
+      // Mark success.
+      await this.cfg.storage.updateJob(job.id, {
         status: 'completed',
         progress: 100,
-        executionDuration: durationMs,
+        executionDuration: duration,
         lockedAt: null,
+        lockedBy: null,
+        finishedAt: new Date(),
       });
 
-      // Create success result
-      await this.storage.updateJobRun(jobRunId, {
+      // Mark success.
+      await this.cfg.storage.updateJobRun(jobRunId, {
         status: 'completed',
         progress: 100,
         finishedAt: new Date(),
@@ -239,7 +266,7 @@ export class PendingJobsTask {
       this.logger.info('Job completed successfully', {
         jobId: job.id,
         type: job.type,
-        durationMs,
+        executionDuration: duration,
       });
 
       await ctx.log('info', `Job completed successfully`);
@@ -256,20 +283,20 @@ export class PendingJobsTask {
         type: job.type,
         error: errorMessage,
         error_stack: error instanceof Error ? error.stack : undefined,
-        durationMs,
+        executionDuration: durationMs,
       });
 
-      // Update job run status
-      await this.storage.updateJobRun(jobRunId, {
+      // Update job run status.
+      await this.cfg.storage.updateJobRun(jobRunId, {
         status: 'failed',
-        finishedAt: new Date(),
         error: errorMessage,
+        finishedAt: new Date(),
       });
 
-      // Handle job failure
+      // Handle job failure.
       if (attempt >= job.maxRetries) {
-        // Move to dead letter queue
-        await this.storage.createDeadLetterJob({
+        // Move to dead letter queue.
+        await this.cfg.storage.createDeadLetterJob({
           jobId: job.id,
           jobType: job.type,
           data: job.data,
@@ -277,11 +304,13 @@ export class PendingJobsTask {
           reason: errorMessage,
         });
 
-        await this.storage.updateJob(job.id, {
+        // Job failed permanently.
+        await this.cfg.storage.updateJob(job.id, {
           status: 'failed',
           failReason: errorMessage,
           failCount: job.failCount + 1,
           lockedAt: null,
+          lockedBy: null,
           executionDuration: durationMs,
         });
 
@@ -295,7 +324,7 @@ export class PendingJobsTask {
 
         await ctx.log('error', `Job failed permanently after ${attempt} attempts: ${errorMessage}`);
       } else {
-        // Calculate backoff delay
+        // Calculate backoff delay.
         let delayMs = 10000;
         if (job.backoffStrategy === 'exponential') {
           delayMs = Math.min(attempt * delayMs, 24 * 60 * 60 * 1000); // Max 24 hours
@@ -313,11 +342,12 @@ export class PendingJobsTask {
         );
 
         const nextRun = new Date(Date.now() + delayMs);
-        await this.storage.updateJob(job.id, {
+        await this.cfg.storage.updateJob(job.id, {
           status: 'pending',
           failReason: errorMessage,
           failCount: job.failCount + 1,
           lockedAt: null,
+          lockedBy: null,
           executionDuration: durationMs,
           runAt: nextRun,
         });
@@ -330,13 +360,13 @@ export class PendingJobsTask {
   }
 
   /**
-   * Try to acquire a lock for a job
+   * Try to acquire a lock for a job.
    */
   private async tryAcquireLock(job: Job): Promise<boolean> {
     const now = new Date();
-    const lockLifetime = this.opts.lockLifetime ?? 5 * 60 * 1000; // 5 minutes default
+    const lockLifetime = this.cfg.lockLifetime;
 
-    // Check if job is already locked
+    // Check if job is already locked.
     if (job.lockedAt) {
       const lockAge = now.getTime() - job.lockedAt.getTime();
       if (lockAge < lockLifetime) {
@@ -351,47 +381,19 @@ export class PendingJobsTask {
     }
 
     try {
-      await this.storage.updateJob(job.id, {
+      await this.cfg.storage.updateJob(job.id, {
         lockedAt: now,
+        lockedBy: this.cfg.worker,
       });
-      this.logger.debug('Lock acquired for job', {
-        jobId: job.id,
-        type: job.type,
-      });
+
       return true;
     } catch (err) {
-      this.logger.debug('Failed to acquire lock for job', {
+      this.logger.error(`Failed to acquire lock for job`, {
         jobId: job.id,
-        type: job.type,
         error: err instanceof Error ? err.message : String(err),
         error_stack: err instanceof Error ? err.stack : undefined,
       });
       return false;
     }
-  }
-
-  /**
-   * Handle invalid job types by moving them to dead letter queue
-   */
-  private async handleInvalidJob(job: Job): Promise<void> {
-    await this.storage.createDeadLetterJob({
-      jobId: job.id,
-      jobType: job.type,
-      data: job.data,
-      failedAt: new Date(),
-      reason: `Unknown job type: ${job.type}`,
-    });
-
-    await this.storage.updateJob(job.id, {
-      status: 'failed',
-      failReason: `Unknown job type: ${job.type}`,
-      failCount: job.failCount + 1,
-      lockedAt: null,
-    });
-
-    this.logger.warn('Moved invalid job to dead letter queue', {
-      jobId: job.id,
-      type: job.type,
-    });
   }
 }
