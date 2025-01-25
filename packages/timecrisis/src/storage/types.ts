@@ -235,18 +235,26 @@ export interface JobStorage {
   releaseLock(lockId: string, owner: string): Promise<boolean>;
 
   /**
-   * Acquire a concurrency slot for a specific job type
+   * Acquire a slot for a specific job type and worker
    * @param jobType - The type of the job
+   * @param worker - The worker requesting the slot
    * @param maxConcurrent - Maximum allowed concurrent jobs for this type
    * @returns True if the slot was acquired, false otherwise
    */
-  acquireConcurrencySlot(jobType: string, maxConcurrent: number): Promise<boolean>;
+  acquireJobTypeSlot(jobType: string, worker: string, maxConcurrent: number): Promise<boolean>;
 
   /**
-   * Release a concurrency slot for a specific job type
+   * Release a slot for a specific job type and worker
    * @param jobType - The type of the job
+   * @param worker - The worker releasing the slot
    */
-  releaseConcurrencySlot(jobType: string): Promise<void>;
+  releaseJobTypeSlot(jobType: string, worker: string): Promise<void>;
+
+  /**
+   * Release all slots held by a specific worker
+   * @param worker - The worker to release all slots for
+   */
+  releaseAllJobTypeSlots(worker: string): Promise<void>;
 
   /**
    * Get the current running count for a specific job type or total across all types

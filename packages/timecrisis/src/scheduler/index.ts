@@ -90,7 +90,7 @@ export class JobScheduler {
         logger: this.logger,
         jobs: this.jobs,
         storage: this.storage,
-        node: this.worker,
+        worker: this.worker,
         executeForkMode: this.executeForkMode.bind(this),
         touchJob: this.touchJob.bind(this),
         maxConcurrentJobs: this.opts.maxConcurrentJobs!,

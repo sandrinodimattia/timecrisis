@@ -86,10 +86,10 @@ export class InMemoryJobStorage implements JobStorage {
   private workers: Map<string, Worker> = new Map();
 
   /**
-   * Map to track running job counts per job type
-   * Keyed by job type, the value is the current number of running jobs of that type
+   * Map to track running job counts per job type and worker
+   * Keyed by job type, the value is a map of worker IDs to their running job counts
    */
-  private runningJobCounts: Map<string, number> = new Map();
+  private runningJobCounts: Map<string, Map<string, number>> = new Map();
 
   /**
    * Flag to track if an operation is currently in progress
@@ -164,7 +164,6 @@ export class InMemoryJobStorage implements JobStorage {
    * @throws ZodError if the worker registration data is invalid
    */
   async registerWorker(worker: RegisterWorker): Promise<string> {
-    const id = randomUUID();
     const now = new Date();
 
     // Validate the registration data
@@ -173,26 +172,25 @@ export class InMemoryJobStorage implements JobStorage {
     // Create the worker instance with validated data
     const workerInstance = WorkerSchema.parse({
       ...validWorker,
-      id,
       first_seen: now,
       last_heartbeat: now,
     });
 
-    this.workers.set(id, workerInstance);
-    return id;
+    this.workers.set(workerInstance.name, workerInstance);
+    return workerInstance.name;
   }
 
   /**
    * Update a worker's heartbeat timestamp
-   * @param id - ID of the worker to update
+   * @param workerName - Name of the worker to update
    * @param heartbeat - Heartbeat data containing the new timestamp
    * @throws WorkerNotFoundError if the worker doesn't exist
    * @throws ZodError if the heartbeat data is invalid
    */
-  async updateWorkerHeartbeat(id: string, heartbeat: UpdateWorkerHeartbeat): Promise<void> {
-    const worker = this.workers.get(id);
+  async updateWorkerHeartbeat(workerName: string, heartbeat: UpdateWorkerHeartbeat): Promise<void> {
+    const worker = this.workers.get(workerName);
     if (!worker) {
-      throw new WorkerNotFoundError(id);
+      throw new WorkerNotFoundError(workerName);
     }
 
     // Update the worker with the new heartbeat
@@ -201,17 +199,17 @@ export class InMemoryJobStorage implements JobStorage {
       last_heartbeat: heartbeat.last_heartbeat,
     });
 
-    this.workers.set(id, updatedWorker);
+    this.workers.set(workerName, updatedWorker);
   }
 
   /**
-   * Get a worker by its ID
-   * @param id - ID of the worker to retrieve
+   * Get a worker by its name
+   * @param workerName - Name of the worker to retrieve
    * @returns Promise that resolves with the worker data
    * @throws WorkerNotFoundError if the worker doesn't exist
    */
-  async getWorker(id: string): Promise<Worker | null> {
-    return this.workers.get(id) || null;
+  async getWorker(workerName: string): Promise<Worker | null> {
+    return this.workers.get(workerName) || null;
   }
 
   /**
@@ -237,17 +235,17 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
-   * Delete a worker by its ID
-   * @param id - ID of the worker to delete
+   * Delete a worker by its name
+   * @param workerName - Name of the worker to delete
    * @throws WorkerNotFoundError if the worker doesn't exist
    */
-  async deleteWorker(id: string): Promise<void> {
-    const worker = await this.getWorker(id);
+  async deleteWorker(workerName: string): Promise<void> {
+    const worker = await this.getWorker(workerName);
     if (!worker) {
-      throw new WorkerNotFoundError(id);
+      throw new WorkerNotFoundError(workerName);
     }
 
-    this.workers.delete(id);
+    this.workers.delete(workerName);
   }
 
   /**
@@ -578,7 +576,7 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
-   * Acquire a lock for a specific job
+   * Acquire a lock.
    * @param lockId - Unique identifier of the lock
    * @param owner - Identifier of the lock owner
    * @param ttl - Time to live for the lock (in milliseconds)
@@ -606,7 +604,7 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
-   * Renew an existing lock for a specific job
+   * Renew an existing lock .
    * @param lockId - Unique identifier of the lock
    * @param owner - Identifier of the lock owner
    * @param ttl - Time to live for the lock (in milliseconds)
@@ -628,7 +626,7 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
-   * Release a lock for a specific job
+   * Release a lock.
    * @param lockId - Unique identifier of the lock
    * @param owner - Identifier of the lock owner
    * @returns True if the lock was released, false otherwise
@@ -644,32 +642,84 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
-   * Acquire a concurrency slot for a specific job type
+   * Acquire a slot for a specific job type and worker
    * @param jobType - The type of the job
+   * @param workerId - The ID of the worker requesting the slot
    * @param maxConcurrent - Maximum allowed concurrent jobs for this type
    * @returns True if the slot was acquired, false otherwise
    */
-  async acquireConcurrencySlot(jobType: string, maxConcurrent: number): Promise<boolean> {
+  async acquireJobTypeSlot(
+    jobType: string,
+    workerId: string,
+    maxConcurrent: number
+  ): Promise<boolean> {
     return this.transaction(async () => {
-      const currentCount = this.runningJobCounts.get(jobType) || 0;
-      if (currentCount >= maxConcurrent) {
+      // Get or create the worker map for this job type
+      let workerMap = this.runningJobCounts.get(jobType);
+      if (!workerMap) {
+        workerMap = new Map();
+        this.runningJobCounts.set(jobType, workerMap);
+      }
+
+      // Calculate total slots used across all workers
+      let totalCount = 0;
+      for (const count of workerMap.values()) {
+        totalCount += count;
+      }
+
+      if (totalCount >= maxConcurrent) {
         return false;
       }
 
-      this.runningJobCounts.set(jobType, currentCount + 1);
+      // Increment the slot count for this worker
+      const currentCount = workerMap.get(workerId) || 0;
+      workerMap.set(workerId, currentCount + 1);
       return true;
     });
   }
 
   /**
-   * Release a concurrency slot for a specific job type
+   * Release a slot for a specific job type and worker
    * @param jobType - The type of the job
+   * @param workerId - The ID of the worker releasing the slot
    */
-  async releaseConcurrencySlot(jobType: string): Promise<void> {
+  async releaseJobTypeSlot(jobType: string, workerId: string): Promise<void> {
     return this.transaction(async () => {
-      const currentCount = this.runningJobCounts.get(jobType) || 0;
+      const workerMap = this.runningJobCounts.get(jobType);
+      if (!workerMap) {
+        return;
+      }
+
+      const currentCount = workerMap.get(workerId) || 0;
       if (currentCount > 0) {
-        this.runningJobCounts.set(jobType, currentCount - 1);
+        workerMap.set(workerId, currentCount - 1);
+      }
+
+      // Clean up empty maps
+      if (workerMap.get(workerId) === 0) {
+        workerMap.delete(workerId);
+      }
+      if (workerMap.size === 0) {
+        this.runningJobCounts.delete(jobType);
+      }
+    });
+  }
+
+  /**
+   * Release all slots held by a specific worker
+   * @param workerId - The ID of the worker to release all slots for
+   */
+  async releaseAllJobTypeSlots(workerId: string): Promise<void> {
+    return this.transaction(async () => {
+      for (const [jobType, workerMap] of this.runningJobCounts.entries()) {
+        if (workerMap.has(workerId)) {
+          workerMap.delete(workerId);
+
+          // Clean up empty maps
+          if (workerMap.size === 0) {
+            this.runningJobCounts.delete(jobType);
+          }
+        }
       }
     });
   }
@@ -681,12 +731,23 @@ export class InMemoryJobStorage implements JobStorage {
    */
   async getRunningCount(jobType?: string): Promise<number> {
     if (jobType) {
-      return this.runningJobCounts.get(jobType) || 0;
+      const workerMap = this.runningJobCounts.get(jobType);
+      if (!workerMap) {
+        return 0;
+      }
+
+      let total = 0;
+      for (const count of workerMap.values()) {
+        total += count;
+      }
+      return total;
     } else {
       // Return the total running jobs across all types
       let total = 0;
-      for (const count of this.runningJobCounts.values()) {
-        total += count;
+      for (const workerMap of this.runningJobCounts.values()) {
+        for (const count of workerMap.values()) {
+          total += count;
+        }
       }
       return total;
     }

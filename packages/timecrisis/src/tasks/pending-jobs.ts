@@ -9,6 +9,11 @@ import { JobContext, JobDefinition, JobDefinitionNotFoundError } from '../schedu
 
 export interface PendingJobsConfig {
   /**
+   * Name of the worker that is performing the job.
+   */
+  worker: string;
+
+  /**
    * Logger.
    */
   logger: Logger;
@@ -22,11 +27,6 @@ export interface PendingJobsConfig {
    * Storage backend.
    */
   storage: JobStorage;
-
-  /**
-   * Name of the worker that is performing the job.
-   */
-  node: string;
 
   /**
    * Maximum number of concurrent jobs that can be running at once.
@@ -170,7 +170,11 @@ export class PendingJobsTask {
           const maxForType = jobDef!.concurrency ?? this.cfg.maxConcurrentJobs;
 
           // Check if concurrency slot is available for this job type.
-          const jobTypeLock = await this.cfg.storage.acquireConcurrencySlot(job.type, maxForType);
+          const jobTypeLock = await this.cfg.storage.acquireJobTypeSlot(
+            job.type,
+            this.cfg.worker,
+            maxForType
+          );
           if (!jobTypeLock) {
             this.logger.debug('Failed to acquire concurrency slot (type limit) for job', {
               jobId: job.id,
@@ -192,7 +196,7 @@ export class PendingJobsTask {
                 jobId: job.id,
                 type: job.type,
               });
-              await this.cfg.storage.releaseConcurrencySlot(job.type);
+              await this.cfg.storage.releaseJobTypeSlot(job.type, this.cfg.worker);
               return;
             } else {
               this.logger.debug('Acquired lock for job', {
@@ -212,7 +216,7 @@ export class PendingJobsTask {
             });
           } finally {
             // Release concurrency slot regardless of job success or failure
-            await this.cfg.storage.releaseConcurrencySlot(job.type);
+            await this.cfg.storage.releaseJobTypeSlot(job.type, this.cfg.worker);
           }
         } catch (err) {
           this.logger.error('Error processing job', {
@@ -448,7 +452,7 @@ export class PendingJobsTask {
     try {
       await this.cfg.storage.updateJob(job.id, {
         lockedAt: now,
-        lockedBy: this.cfg.node,
+        lockedBy: this.cfg.worker,
       });
 
       return true;

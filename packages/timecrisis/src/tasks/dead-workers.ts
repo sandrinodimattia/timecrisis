@@ -119,7 +119,7 @@ export class DeadWorkersTask {
         try {
           // Find all jobs locked by this worker
           const lockedJobs = await this.cfg.storage.listJobs({
-            lockedBy: worker.id,
+            lockedBy: worker.name,
           });
 
           // Update locked jobs to be unlocked
@@ -179,17 +179,19 @@ export class DeadWorkersTask {
             }
           }
 
-          // Now remove the worker
-          await this.cfg.storage.deleteWorker(worker.id);
-          this.logger.info(`Removed inactive worker`, {
-            worker_id: worker.id,
+          // Remove concurrency locks
+          await this.cfg.storage.releaseAllJobTypeSlots(worker.name);
+          this.logger.info(`Released all job type slots for worker`, {
             worker_name: worker.name,
-            last_heartbeat: worker.last_heartbeat?.toISOString(),
-            locked_jobs_cleaned: lockedJobs.length,
+          });
+
+          // Now remove the worker
+          await this.cfg.storage.deleteWorker(worker.name);
+          this.logger.info(`Removed inactive worker`, {
+            worker_name: worker.name,
           });
         } catch (err) {
           this.logger.error(`Failed to remove inactive worker`, {
-            worker_id: worker.id,
             error: err instanceof Error ? err.message : String(err),
             error_stack: err instanceof Error ? err.stack : undefined,
           });

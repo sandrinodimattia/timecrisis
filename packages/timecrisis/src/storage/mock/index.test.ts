@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 
 import { MockJobStorage } from './index.js';
-import { RegisterWorker } from '../schemas/index.js';
 import { WorkerNotFoundError } from '../types.js';
 
 describe('MockJobStorage', () => {
@@ -569,7 +568,7 @@ describe('MockJobStorage', () => {
         const lastHeartbeatBefore = new Date('2025-01-22T23:30:00.000Z'); // 30 minutes ago
         const inactiveWorkers = await storage.getInactiveWorkers(lastHeartbeatBefore);
         expect(inactiveWorkers).toHaveLength(1);
-        expect(inactiveWorkers[0].id).toBe(inactiveWorkerId);
+        expect(inactiveWorkers[0].name).toBe(inactiveWorkerId);
         expect(storage.getInactiveWorkers).toHaveBeenCalledWith(lastHeartbeatBefore);
       });
 
@@ -611,55 +610,68 @@ describe('MockJobStorage', () => {
     });
   });
 
-  describe('Concurrency Management', () => {
-    it('should acquire and release concurrency slots', async () => {
+  describe('concurrency slots', () => {
+    it('should acquire and release job type slots', async () => {
+      const storage = new MockJobStorage();
       const jobType = 'test-job';
+      const workerId = 'worker-1';
       const maxConcurrent = 2;
 
-      // Acquire first slot
-      const acquired1 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
-      expect(acquired1).toBe(true);
-      expect(await storage.getRunningCount(jobType)).toBe(1);
+      // Acquire slots
+      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
+      expect(storage.acquireJobTypeSlot).toHaveBeenCalledWith(jobType, workerId, maxConcurrent);
 
-      // Acquire second slot
-      const acquired2 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
-      expect(acquired2).toBe(true);
-      expect(await storage.getRunningCount(jobType)).toBe(2);
-
-      // Try to acquire third slot (should fail)
-      const acquired3 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
-      expect(acquired3).toBe(false);
-      expect(await storage.getRunningCount(jobType)).toBe(2);
-
-      // Release a slot
-      await storage.releaseConcurrencySlot(jobType);
-      expect(await storage.getRunningCount(jobType)).toBe(1);
-
-      // Should be able to acquire another slot now
-      const acquired4 = await storage.acquireConcurrencySlot(jobType, maxConcurrent);
-      expect(acquired4).toBe(true);
-      expect(await storage.getRunningCount(jobType)).toBe(2);
+      // Release slots
+      await storage.releaseJobTypeSlot(jobType, workerId);
+      expect(storage.releaseJobTypeSlot).toHaveBeenCalledWith(jobType, workerId);
     });
 
-    it('should get total running count across all job types', async () => {
-      await storage.acquireConcurrencySlot('job-type-1', 2);
-      await storage.acquireConcurrencySlot('job-type-2', 2);
-      await storage.acquireConcurrencySlot('job-type-2', 2);
+    it('should handle release all slots for a worker', async () => {
+      const storage = new MockJobStorage();
+      const workerId = 'worker-1';
 
-      expect(await storage.getRunningCount()).toBe(3);
+      await storage.releaseAllJobTypeSlots(workerId);
+      expect(storage.releaseAllJobTypeSlots).toHaveBeenCalledWith(workerId);
     });
 
-    it('should not reduce count below zero when releasing slots', async () => {
+    it('should handle failures correctly', async () => {
+      const storage = new MockJobStorage({
+        shouldFailAcquire: true,
+        shouldFailRelease: true,
+      });
       const jobType = 'test-job';
+      const workerId = 'worker-1';
+      const maxConcurrent = 2;
 
-      // Release without acquiring
-      await storage.releaseConcurrencySlot(jobType);
-      expect(await storage.getRunningCount(jobType)).toBe(0);
+      // Acquire should fail
+      await expect(storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent)).rejects.toThrow(
+        'Failed to acquire slot'
+      );
 
-      // Acquire and release multiple times
-      await storage.releaseConcurrencySlot(jobType);
-      await storage.releaseConcurrencySlot(jobType);
-      expect(await storage.getRunningCount(jobType)).toBe(0);
+      // Release should fail
+      await expect(storage.releaseJobTypeSlot(jobType, workerId)).rejects.toThrow(
+        'Failed to release slot'
+      );
+
+      // Release all should fail
+      await expect(storage.releaseAllJobTypeSlots(workerId)).rejects.toThrow(
+        'Failed to release slots'
+      );
+    });
+
+    it('should track running counts', async () => {
+      const storage = new MockJobStorage();
+      const jobType = 'test-job';
+      const workerId = 'worker-1';
+      const maxConcurrent = 2;
+
+      // Acquire slots
+      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
+      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
+      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
+
+      const res = await storage.getRunningCount(jobType);
+      expect(res).toBe(2);
     });
   });
 });

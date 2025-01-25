@@ -5,11 +5,6 @@ import { z } from 'zod';
  */
 export const WorkerSchema = z.object({
   /**
-   * Unique identifier of the worker
-   */
-  id: z.string(),
-
-  /**
    * Name of the worker instance
    */
   name: z.string(),
@@ -29,7 +24,6 @@ export const WorkerSchema = z.object({
  * Schema for registering a new worker
  */
 export const RegisterWorkerSchema = WorkerSchema.omit({
-  id: true,
   first_seen: true,
   last_heartbeat: true,
 });

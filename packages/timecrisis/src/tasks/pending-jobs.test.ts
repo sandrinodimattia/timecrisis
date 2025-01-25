@@ -30,7 +30,7 @@ describe('PendingJobsTask', () => {
       executeForkMode,
       touchJob,
       logger: new EmptyLogger(),
-      node: 'test-worker',
+      worker: 'test-worker',
       maxConcurrentJobs: 20,
       jobLockTTL: 30000,
       pollInterval: 100,
@@ -81,7 +81,7 @@ describe('PendingJobsTask', () => {
       let runningJobs = 0;
       const maxConcurrency = 3;
 
-      storage.acquireConcurrencySlot = vi.fn().mockImplementation(async () => {
+      storage.acquireJobTypeSlot = vi.fn().mockImplementation(async () => {
         if (runningJobs >= maxConcurrency) {
           return false;
         }
@@ -89,7 +89,7 @@ describe('PendingJobsTask', () => {
         return true;
       });
 
-      storage.releaseConcurrencySlot = vi.fn().mockImplementation(async () => {
+      storage.releaseJobTypeSlot = vi.fn().mockImplementation(async () => {
         runningJobs = Math.max(0, runningJobs - 1);
       });
 
@@ -125,7 +125,11 @@ describe('PendingJobsTask', () => {
       await vi.runAllTimersAsync();
       await executePromise;
 
-      expect(storage.acquireConcurrencySlot).toHaveBeenCalledWith('test', maxConcurrency);
+      expect(storage.acquireJobTypeSlot).toHaveBeenCalledWith(
+        'test',
+        'test-worker',
+        maxConcurrency
+      );
       expect(jobDef.handle).toHaveBeenCalledTimes(maxConcurrency);
       expect(runningJobs).toBe(0); // All jobs should be finished
     });
