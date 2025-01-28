@@ -169,7 +169,7 @@ export interface EnqueueOptions {
   /**
    * Reference ID for grouping jobs (e.g., by user or entity).
    **/
-  referenceId?: string;
+  entityId?: string;
 
   /**
    * When the job should expire.

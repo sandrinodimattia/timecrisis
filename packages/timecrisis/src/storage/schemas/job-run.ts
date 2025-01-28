@@ -40,6 +40,11 @@ export const JobRunSchema = z.object({
   finishedAt: z.date().optional(),
 
   /**
+   * Duration of execution in milliseconds.
+   */
+  executionDuration: z.number().int().min(0).optional(),
+
+  /**
    * Which attempt this run represents
    */
   attempt: z.number().int().min(1).default(1),

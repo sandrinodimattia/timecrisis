@@ -3,7 +3,7 @@ import { z } from 'zod';
 /**
  * Schema for job status
  */
-export const JobStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'scheduled']);
+export const JobStatusSchema = z.enum(['pending', 'running', 'completed', 'failed', 'canceled']);
 
 /**
  * Schema for backoff strategy
@@ -20,14 +20,14 @@ export const JobSchema = z.object({
   id: z.string(),
 
   /**
-   * Reference ID for grouping jobs. This is the ID of the user, the file, ...
-   */
-  referenceId: z.string().nullable().optional(),
-
-  /**
    * Type of job, used to match with a job handler.
    */
   type: z.string(),
+
+  /**
+   * Entity ID for grouping jobs. This is the ID of the user, the file, ...
+   */
+  entityId: z.string().nullable().optional(),
 
   /**
    * Job-specific data which will be provided to the job when it runs.
@@ -45,21 +45,6 @@ export const JobSchema = z.object({
   status: JobStatusSchema.default('pending'),
 
   /**
-   * Progress of the job (0-100)
-   */
-  progress: z.number().min(0).max(100).default(0),
-
-  /**
-   * Duration of execution in milliseconds.
-   */
-  executionDuration: z.number().int().min(0).optional(),
-
-  /**
-   * Number of retries attempted.
-   */
-  attempts: z.number().int().min(0).default(0),
-
-  /**
    * Maximum number of retries allowed.
    */
   maxRetries: z.number().int().min(0).default(0),
@@ -72,28 +57,12 @@ export const JobSchema = z.object({
   /**
    * Reason for failure if job failed.
    */
-  failReason: z.string().optional(),
+  failReason: z.string().nullable().optional(),
 
   /**
    * Number of times this job has failed.
    */
   failCount: z.number().int().min(0).default(0),
-
-  /**
-   * When the job expires. This is useful for when a job is time sensitive.
-   * After this date, the job will be automatically failed.
-   */
-  expiresAt: z.date().nullable().optional(),
-
-  /**
-   * When the job was last locked.
-   */
-  lockedAt: z.date().nullable().optional(),
-
-  /**
-   * ID of the worker that has locked this job
-   */
-  lockedBy: z.string().nullable().optional(),
 
   /**
    * When the job was started.
@@ -104,6 +73,12 @@ export const JobSchema = z.object({
    * When the job should start executing.
    */
   runAt: z.date().nullable().optional(),
+
+  /**
+   * When the job expires. This is useful for when a job is time sensitive.
+   * After this date, the job will be automatically failed.
+   */
+  expiresAt: z.date().nullable().optional(),
 
   /**
    * When the job was finished. Either successfully or with an error.
@@ -129,10 +104,8 @@ export const CreateJobSchema = JobSchema.omit({
   createdAt: true,
   updatedAt: true,
 }).partial({
-  progress: true,
   priority: true,
   status: true,
-  attempts: true,
   maxRetries: true,
   backoffStrategy: true,
   failCount: true,

@@ -32,7 +32,7 @@ export const DeadLetterJobSchema = z.object({
   /**
    * Reason for failure
    */
-  reason: z.string(),
+  failReason: z.string(),
 });
 
 /**
