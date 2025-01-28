@@ -24,7 +24,7 @@ interface WorkerAliveTaskConfig {
 }
 
 export class WorkerAliveTask {
-  private workerId: string | null = null;
+  private worker: string | null = null;
   private timer: NodeJS.Timeout | null = null;
 
   private readonly cfg: WorkerAliveTaskConfig;
@@ -39,15 +39,15 @@ export class WorkerAliveTask {
    */
   async execute(): Promise<void> {
     try {
-      if (!this.workerId) {
+      if (!this.worker) {
         // Register the worker if not already registered
-        this.workerId = await this.cfg.storage.registerWorker({
+        this.worker = await this.cfg.storage.registerWorker({
           name: this.cfg.name,
         });
         return;
       }
 
-      await this.cfg.storage.updateWorkerHeartbeat(this.workerId, {
+      await this.cfg.storage.updateWorkerHeartbeat(this.worker, {
         last_heartbeat: new Date(),
       });
     } catch (err) {
@@ -87,7 +87,7 @@ export class WorkerAliveTask {
    * Get the ID of the registered worker
    * @returns The worker ID if registered, null otherwise
    */
-  getWorkerId(): string | null {
-    return this.workerId;
+  getWorkerName(): string | null {
+    return this.worker;
   }
 }

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { EmptyLogger } from '../logger/index.js';
+import {
+  defaultValues,
+  createLogger,
+  createStorage,
+  prepareEnvironment,
+  resetEnvironment,
+} from '../test-helpers/defaults.js';
 import { WorkerAliveTask } from './worker-alive.js';
 import { MockJobStorage } from '../storage/mock/index.js';
 
@@ -9,61 +15,61 @@ describe('WorkerAliveTask', () => {
   let task: WorkerAliveTask;
 
   beforeEach(() => {
-    storage = new MockJobStorage();
+    prepareEnvironment();
+
+    storage = createStorage();
     task = new WorkerAliveTask({
       storage,
-      name: 'test-worker',
-      heartbeatInterval: 100,
-      logger: new EmptyLogger(),
+      name: defaultValues.workerName,
+      heartbeatInterval: defaultValues.workerAliveInterval,
+      logger: createLogger(),
     });
-
-    vi.useFakeTimers();
   });
 
   afterEach(() => {
     task.stop();
-    vi.useRealTimers();
+    resetEnvironment();
   });
 
   it('should register worker on start', async () => {
     await task.start();
-    const workerId = task.getWorkerId();
+    const workerName = task.getWorkerName();
 
-    expect(workerId).toBeDefined();
-    const worker = await storage.getWorker(workerId!);
+    expect(workerName).toBeDefined();
+    const worker = await storage.getWorker(workerName!);
     expect(worker).toBeDefined();
-    expect(worker?.name).toBe('test-worker');
+    expect(worker?.name).toBe(defaultValues.workerName);
   });
 
   it('should update heartbeat at intervals', async () => {
     await task.start();
-    const workerId = task.getWorkerId();
+    const workerName = task.getWorkerName();
 
     // Get initial heartbeat
-    const initialWorker = await storage.getWorker(workerId!);
+    const initialWorker = await storage.getWorker(workerName!);
     const initialHeartbeat = initialWorker?.last_heartbeat;
 
     // Advance timer and check for update
-    await vi.advanceTimersByTimeAsync(100);
-    const updatedWorker = await storage.getWorker(workerId!);
+    await vi.advanceTimersByTimeAsync(defaultValues.workerAliveInterval);
+    const updatedWorker = await storage.getWorker(workerName!);
     expect(updatedWorker?.last_heartbeat.getTime()).toBeGreaterThan(initialHeartbeat!.getTime());
   });
 
   it('should stop sending heartbeats when stopped', async () => {
     await task.start();
-    const workerId = task.getWorkerId();
+    const workerName = task.getWorkerName();
 
     // Get heartbeat after first update
-    await vi.advanceTimersByTimeAsync(100);
-    const worker1 = await storage.getWorker(workerId!);
+    await vi.advanceTimersByTimeAsync(defaultValues.workerAliveInterval);
+    const worker1 = await storage.getWorker(workerName!);
     const heartbeat1 = worker1?.last_heartbeat;
 
     // Stop the task
     task.stop();
 
     // Advance timer and verify no update
-    await vi.advanceTimersByTimeAsync(100);
-    const worker2 = await storage.getWorker(workerId!);
+    await vi.advanceTimersByTimeAsync(defaultValues.workerAliveInterval);
+    const worker2 = await storage.getWorker(workerName!);
     expect(worker2?.last_heartbeat.getTime()).toBe(heartbeat1?.getTime());
   });
 
@@ -76,13 +82,13 @@ describe('WorkerAliveTask', () => {
 
     const failingTask = new WorkerAliveTask({
       storage,
-      name: 'test-worker',
-      heartbeatInterval: 100,
-      logger: new EmptyLogger(),
+      name: defaultValues.workerName,
+      heartbeatInterval: defaultValues.workerAliveInterval,
+      logger: createLogger(),
     });
 
     await failingTask.start();
-    await vi.advanceTimersByTimeAsync(100);
+    await vi.advanceTimersByTimeAsync(defaultValues.workerAliveInterval);
 
     failingTask.stop();
   });
