@@ -65,41 +65,38 @@ export class LeaderElection {
     try {
       // If we're already leader, try to renew instead of acquire
       if (wasLeader) {
-        await this.lock!.renew();
+        const renewed = await this.lock!.renew();
+        if (!renewed) {
+          this.lock = undefined;
+        }
       } else {
         this.lock = await this.distributedLock.acquire(this.LOCK_NAME);
       }
 
       const succeeded = !!this.lock;
-
-      // First update our state
-      const hadStateChange = succeeded !== wasLeader;
       this.isLeader = succeeded;
 
-      // Then handle callbacks if there was a real state change
-      if (hadStateChange) {
-        if (succeeded) {
-          // We just gained leadership
-          if (this.opts.onAcquired) {
-            await Promise.resolve(this.opts.onAcquired());
-          }
-        } else {
-          // We just lost leadership
-          if (this.opts.onLost) {
-            await Promise.resolve(this.opts.onLost());
-          }
+      // Handle state changes
+      if (wasLeader && !succeeded) {
+        // Lost leadership
+        if (this.opts.onLost) {
+          await Promise.resolve(this.opts.onLost());
+        }
+      } else if (!wasLeader && succeeded) {
+        // Gained leadership
+        if (this.opts.onAcquired) {
+          await Promise.resolve(this.opts.onAcquired());
         }
       }
 
       return this.isLeader;
     } catch (err) {
-      // If we were leader and an error occurred, we must assume we lost leadership
-      if (wasLeader) {
-        this.isLeader = false;
-        if (this.opts.onLost) {
-          await Promise.resolve(this.opts.onLost());
-        }
+      // If we were leader or trying to become leader, handle the loss
+      this.isLeader = false;
+      if (wasLeader && this.opts.onLost) {
+        await Promise.resolve(this.opts.onLost());
       }
+      // Now we can throw
       throw err;
     }
   }
