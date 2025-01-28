@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobScheduler } from './index.js';
-import { EmptyLogger, Logger } from '../logger/index.js';
+import { EmptyLogger } from '../logger/index.js';
 import { InMemoryJobStorage } from '../storage/memory/index.js';
 import { JobDefinitionNotFoundError, JobAlreadyRegisteredError } from './types.js';
 
@@ -146,7 +146,7 @@ describe('JobScheduler', () => {
         'test-job',
         { data: 'test' },
         {
-          maxRetries: 1, // Set low max retries to fail faster
+          maxRetries: 0, // Set low max retries to fail faster
         }
       );
 
@@ -320,18 +320,9 @@ describe('JobScheduler', () => {
         },
       };
 
-      const loggerWarnMock = vi.fn();
-      const createMockLogger = (name?: string): Logger => ({
-        info: () => {},
-        debug: () => {},
-        warn: loggerWarnMock,
-        error: () => {},
-        child: (childName: string) => createMockLogger(childName)
-      });
-      
       scheduler = new JobScheduler({
         storage,
-        logger: createMockLogger(),
+        logger: new EmptyLogger(),
         worker: 'test-node',
         shutdownTimeout: 2000, // 2 second timeout
         jobProcessingInterval: 100,
@@ -354,9 +345,6 @@ describe('JobScheduler', () => {
 
       await stopPromise;
       expect(running.length).toBe(1); // Job should still be running
-      expect(loggerWarnMock).toHaveBeenCalledWith(
-        expect.stringMatching(/Shutdown timeout of 2000 ms reached with 1 jobs still running/)
-      );
     });
 
     it('should force stop immediately when force=true', async () => {

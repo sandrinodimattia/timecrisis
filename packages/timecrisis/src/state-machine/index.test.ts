@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   defaultJob,
-  defaultJobSchema,
+  defaultJobDefinition,
   prepareEnvironment,
   resetEnvironment,
 } from '../test-helpers/defaults.js';
@@ -29,7 +29,7 @@ stores.forEach(({ name, store }) => {
       prepareEnvironment();
 
       jobs = new Map();
-      jobs.set(defaultJobSchema.type, defaultJobSchema);
+      jobs.set(defaultJobDefinition.type, defaultJobDefinition);
       jobStore = store();
       stateMachine = new JobStateMachine({ storage: jobStore, jobs, logger: new EmptyLogger() });
     });
@@ -40,19 +40,19 @@ stores.forEach(({ name, store }) => {
 
     describe('job creation', () => {
       it('should create a new job in pending state', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
 
         expect(job).toBeDefined();
         expect(job?.id).toBe(jobId);
-        expect(job?.type).toBe(defaultJobSchema.type);
+        expect(job?.type).toBe(defaultJobDefinition.type);
         expect(job?.status).toBe(JobState.Pending);
         expect(job?.data).toEqual(defaultJob.data);
       });
 
       it('should validate job data against schema', async () => {
         await expect(
-          stateMachine.enqueue(defaultJobSchema.type, { invalid: 'data' })
+          stateMachine.enqueue(defaultJobDefinition.type, { invalid: 'data' })
         ).rejects.toThrow();
       });
 
@@ -63,7 +63,7 @@ stores.forEach(({ name, store }) => {
 
     describe('transitions', () => {
       it('should transition from pending to running', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
 
         const job = await jobStore.getJob(jobId);
         expect(job?.status).toBe(JobState.Pending);
@@ -74,7 +74,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should transition from running to completed', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
         await stateMachine.complete(job!, jobRunId);
@@ -84,7 +84,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should transition from running to failed', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
         await stateMachine.fail(job!, jobRunId, false, 'Test error');
@@ -95,7 +95,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should transition from failed to pending', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 2,
         });
         let job = await jobStore.getJob(jobId);
@@ -112,7 +112,7 @@ stores.forEach(({ name, store }) => {
 
     describe('invalid transitions', () => {
       it('should not allow starting a completed job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
         await stateMachine.complete(job!, jobRunId);
@@ -121,7 +121,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should not allow completing a pending job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
 
         await expect(stateMachine.complete(job!, 'job-run-id')).rejects.toThrow(
@@ -132,7 +132,7 @@ stores.forEach(({ name, store }) => {
 
     describe('metadata updates', () => {
       it('should update timestamps on state changes', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
 
         const createdAt = job!.createdAt;
@@ -146,7 +146,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should track attempts', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 1,
         });
 
@@ -164,7 +164,7 @@ stores.forEach(({ name, store }) => {
 
     describe('job runs and logs', () => {
       it('should create a job run when starting a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
@@ -179,7 +179,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should update job run status when completing a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
         await stateMachine.complete(job!, jobRunId);
@@ -197,7 +197,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should update job run status and error when failing a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
         await stateMachine.fail(job!, jobRunId, false, 'Test failure reason');
@@ -216,7 +216,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should maintain job run history through retries', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 2,
         });
 
@@ -249,7 +249,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should create job logs during job execution', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
@@ -297,7 +297,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should maintain logs across multiple job runs', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 3,
         });
 
@@ -346,7 +346,7 @@ stores.forEach(({ name, store }) => {
 
     describe('dead letter queue', () => {
       it('should move job to dead letter when max retries exceeded', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 2,
         });
 
@@ -377,7 +377,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should move job to dead letter immediately when retry is disabled', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {});
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {});
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
@@ -395,7 +395,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should maintain complete history in dead letter queue', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 1,
         });
 
@@ -447,7 +447,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should prevent starting a job in dead letter queue', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
 
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
@@ -461,7 +461,7 @@ stores.forEach(({ name, store }) => {
 
     describe('field updates', () => {
       it('should set all fields correctly when creating a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 3,
           priority: 5,
         });
@@ -469,7 +469,7 @@ stores.forEach(({ name, store }) => {
         const job = await jobStore.getJob(jobId);
         expect(job).toMatchObject({
           id: jobId,
-          type: defaultJobSchema.type,
+          type: defaultJobDefinition.type,
           data: defaultJob.data,
           status: JobState.Pending,
           priority: 5,
@@ -482,7 +482,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should update all relevant fields when starting a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         await stateMachine.start(job!);
 
@@ -495,7 +495,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should update all relevant fields when failing a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
@@ -513,7 +513,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should update all relevant fields when completing a job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data);
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
@@ -529,7 +529,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should reset relevant fields when retrying a failed job', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 3,
         });
 
@@ -547,7 +547,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should maintain job options through transitions', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 3,
           priority: 5,
         });
@@ -564,7 +564,7 @@ stores.forEach(({ name, store }) => {
       });
 
       it('should properly track multiple failure attempts', async () => {
-        const jobId = await stateMachine.enqueue(defaultJobSchema.type, defaultJob.data, {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
           maxRetries: 3,
         });
 

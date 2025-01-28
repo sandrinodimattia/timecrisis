@@ -5,7 +5,7 @@ import {
   resetEnvironment,
   prepareEnvironment,
   defaultValues,
-  defaultJobSchema,
+  defaultJobDefinition,
   defaultJob,
   now,
   tomorrow,
@@ -47,7 +47,7 @@ describe('ExpiredJobsTask', () => {
     prepareEnvironment();
 
     jobs = new Map();
-    jobs.set(defaultJobSchema.type, defaultJobSchema);
+    jobs.set(defaultJobDefinition.type, defaultJobDefinition);
 
     storage = new MockJobStorage();
     leaderElection = createMockLeaderElection();
@@ -88,7 +88,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should handle expired lock for job with retries remaining', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -137,7 +137,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should handle expired lock for job with no retries remaining', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -193,7 +193,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should handle expired jobs', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'pending',
@@ -217,7 +217,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should skip non-expired jobs', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'pending',
@@ -248,7 +248,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should handle jobs with no current run', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -291,7 +291,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should handle errors during job processing', async () => {
     await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -304,7 +304,6 @@ describe('ExpiredJobsTask', () => {
     // Mock an error during job run listing
     vi.mocked(storage.listJobRuns).mockRejectedValueOnce(new Error('Database error'));
 
-    // Spy on console.error
     await task.execute();
 
     expect(storage.updateJob).not.toHaveBeenCalled();
@@ -313,7 +312,7 @@ describe('ExpiredJobsTask', () => {
   it('should process multiple jobs in a single execution', async () => {
     // Create two jobs - one with expired lock, one expired
     const job1Id = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -337,7 +336,7 @@ describe('ExpiredJobsTask', () => {
     );
 
     const job2Id = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'pending',
@@ -384,7 +383,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should handle jobs with both lock and job expiration', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -443,7 +442,7 @@ describe('ExpiredJobsTask', () => {
 
   it('should still update the job even if no run exists', async () => {
     const jobId = await storage.createJob({
-      type: defaultJobSchema.type,
+      type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
       status: 'running',
@@ -552,7 +551,7 @@ describe('ExpiredJobsTask', () => {
   describe('edge cases', () => {
     it('should handle multiple job runs with only one running', async () => {
       const jobId = await storage.createJob({
-        type: defaultJobSchema.type,
+        type: defaultJobDefinition.type,
         data: defaultJob.data,
         priority: 0,
         status: 'running',
@@ -606,7 +605,7 @@ describe('ExpiredJobsTask', () => {
     it('should handle leadership changes during execution', async () => {
       // Set up a job that would be processed
       const jobId = await storage.createJob({
-        type: defaultJobSchema.type,
+        type: defaultJobDefinition.type,
         data: defaultJob.data,
         priority: 0,
         status: 'running',
@@ -639,7 +638,7 @@ describe('ExpiredJobsTask', () => {
 
     it('should handle errors during job updates', async () => {
       await storage.createJob({
-        type: defaultJobSchema.type,
+        type: defaultJobDefinition.type,
         data: defaultJob.data,
         priority: 0,
         status: 'running',

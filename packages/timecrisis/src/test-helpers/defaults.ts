@@ -1,9 +1,12 @@
 import { z } from 'zod';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 
+import { JobStorage } from '../storage/types.js';
+import { JobDefinition } from '../scheduler/types.js';
 import { CreateJob } from '../storage/schemas/job.js';
 import { EmptyLogger, Logger } from '../logger/index.js';
 import { MockJobStorage } from '../storage/mock/index.js';
+import { formatLockName } from '../concurrency/job-lock.js';
 
 export const now = new Date('2025-01-01T09:00:00.000Z');
 export const lastWeek = new Date('2024-12-25T09:00:00.000Z');
@@ -29,24 +32,48 @@ export const createLogger = function createLogger(): Logger {
   return new EmptyLogger();
 };
 
+export const createJobLock = async function (
+  storage: JobStorage,
+  jobId: string,
+  worker?: string,
+  lockTTL?: number
+): Promise<void> {
+  await storage.acquireLock(
+    formatLockName(jobId),
+    worker ?? defaultValues.workerName,
+    lockTTL ?? defaultValues.jobLockTTL
+  );
+};
+
+export const expectJobLocked = async function (storage: JobStorage, jobId: string): Promise<void> {
+  const locks = await storage.listLocks({ worker: defaultValues.workerName });
+  const jobLock = locks.find((lock) => formatLockName(jobId) === lock.lockId);
+  expect(jobLock?.lockId).toBe(formatLockName(jobId));
+};
+
+export const expectJobUnlocked = async function (
+  storage: JobStorage,
+  jobId: string
+): Promise<void> {
+  const locks = await storage.listLocks({ worker: defaultValues.workerName });
+  const jobLock = locks.find((lock) => formatLockName(jobId) === lock.lockId);
+  expect(jobLock?.lockId).toBe(formatLockName(jobId));
+};
+
 export const defaultValues = {
   workerName: 'test-worker',
   lockName: 'test-lock',
   lockNameAlternative: 'test-lock-other',
+  maxConcurrentJobs: 20,
   pollInterval: 1000,
   jobLockTTL: 120000,
   lockTTL: 30000,
+  longRunningJobDuration: 2000,
   distributedLockTTL: 30000,
   executionDuration: 5000,
-  schedulerJobMaxStaleAge: 60000,
+  schedulerJobMaxStaleAge: 240000,
   workerAliveInterval: 100,
   workerDeadTimeout: 45000,
-};
-
-export const defaultJobSchema = {
-  type: 'test',
-  schema: z.object({ test: z.boolean() }),
-  handle: (): Promise<void> => Promise.resolve(),
 };
 
 export const defaultJob: CreateJob = {
@@ -61,3 +88,34 @@ export const defaultJob: CreateJob = {
   backoffStrategy: 'exponential',
   failCount: 0,
 };
+
+export const defaultJobDefinition = {
+  type: 'test',
+  schema: z.object({ test: z.boolean() }),
+  handle: (): Promise<void> => Promise.resolve(),
+} as unknown as JobDefinition;
+vi.spyOn(defaultJobDefinition, 'handle');
+
+export const longRunningJobDefinition = {
+  type: 'test-long',
+  schema: z.object({ test: z.boolean() }),
+  handle: vi.fn().mockImplementation(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }),
+} as unknown as JobDefinition;
+vi.spyOn(longRunningJobDefinition, 'handle');
+
+export const failedJobDefinition = {
+  type: 'test-failed',
+  handle: vi.fn().mockRejectedValue(new Error('Test error')),
+  concurrency: 1,
+  schema: z.object({ test: z.boolean() }),
+};
+vi.spyOn(failedJobDefinition, 'handle');
+
+const jobRegistrations = new Map<string, JobDefinition>();
+jobRegistrations.set(failedJobDefinition.type, failedJobDefinition);
+jobRegistrations.set(defaultJobDefinition.type, defaultJobDefinition);
+jobRegistrations.set(longRunningJobDefinition.type, longRunningJobDefinition);
+
+export const defaultJobRegistrations = jobRegistrations;

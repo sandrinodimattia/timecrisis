@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import {
   defaultJob,
-  defaultJobSchema,
+  defaultJobDefinition,
   defaultValues,
   lastWeek,
   now,
@@ -27,7 +27,7 @@ describe('DeadWorkersTask', () => {
     prepareEnvironment();
 
     jobs = new Map();
-    jobs.set('test', defaultJobSchema);
+    jobs.set('test', defaultJobDefinition);
     leader = new LeaderElection({
       storage,
       node: defaultValues.workerName,

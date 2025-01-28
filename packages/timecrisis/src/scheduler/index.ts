@@ -28,11 +28,13 @@ import {
   WorkerAliveTask,
 } from '../tasks/index.js';
 
-import { LeaderElection } from '../leader/index.js';
 import { parseDuration } from '../lib/duration.js';
 import { EmptyLogger, Logger } from '../logger/index.js';
 import { Job, JobRun } from '../storage/schemas/index.js';
+import { JobStateMachine } from '../state-machine/index.js';
 import { JobNotFoundError, JobStorage } from '../storage/types.js';
+import { LeaderElection } from '../concurrency/leader-election.js';
+import { DistributedLock } from '../concurrency/distributed-lock.js';
 
 export class JobScheduler {
   private worker: string;
@@ -42,6 +44,7 @@ export class JobScheduler {
   private jobs: Map<string, JobDefinition> = new Map();
   private isRunning: boolean = false;
   private opts: SchedulerConfig;
+  private stateMachine: JobStateMachine;
 
   private tasks: {
     workerInactiveCleanup: DeadWorkersTask;
@@ -56,6 +59,12 @@ export class JobScheduler {
     this.worker = opts.worker ?? `${hostname()}-${randomUUID()}`;
     this.logger = opts.logger ?? new EmptyLogger();
     this.storage = opts.storage;
+    this.stateMachine = new JobStateMachine({
+      storage: this.storage,
+      logger: this.logger,
+      jobs: this.jobs,
+    });
+
     this.opts = {
       ...opts,
       maxConcurrentJobs: opts.maxConcurrentJobs ?? 20,
@@ -86,36 +95,40 @@ export class JobScheduler {
     // Create the different tasks which run in the background.
     this.tasks = {
       pendingJobs: new PendingJobsTask({
+        distributedLock: new DistributedLock({
+          storage: this.storage,
+          lockTTL: 10000,
+          worker: this.worker,
+        }),
         logger: this.logger,
-        jobs: this.jobs,
         storage: this.storage,
+        jobs: this.jobs,
+        stateMachine: this.stateMachine,
         worker: this.worker,
         executeForkMode: this.executeForkMode.bind(this),
-        touchJob: this.touchJob.bind(this),
         maxConcurrentJobs: this.opts.maxConcurrentJobs!,
         jobLockTTL: this.opts.jobLockTTL!,
         pollInterval: this.opts.jobProcessingInterval!,
       }),
       scheduledJobs: new ScheduledJobsTask({
-        storage: this.storage,
         logger: this.logger,
+        storage: this.storage,
+        stateMachine: this.stateMachine,
         leaderElection: this.leaderElection,
         scheduledJobMaxStaleAge: this.opts.scheduledJobMaxStaleAge!,
         pollInterval: this.opts.jobSchedulingInterval!,
-        enqueueJob: async (job, data): Promise<void> => {
-          await this.enqueue(job, data);
-        },
       }),
       expiredJobs: new ExpiredJobsTask({
-        storage: this.storage,
         logger: this.logger,
+        storage: this.storage,
+        stateMachine: this.stateMachine,
         leaderElection: this.leaderElection,
         jobLockTTL: this.opts.jobLockTTL!,
         pollInterval: this.opts.expiredJobCheckInterval!,
       }),
       storageCleanup: new StorageCleanupTask({
-        storage: this.storage,
         logger: this.logger,
+        storage: this.storage,
         pollInterval: 3600000,
         jobRetention: 365,
         failedJobRetention: 365,
@@ -130,6 +143,7 @@ export class JobScheduler {
       workerInactiveCleanup: new DeadWorkersTask({
         logger: this.logger,
         storage: this.storage,
+        stateMachine: this.stateMachine,
         leaderElection: this.leaderElection,
         pollInterval: this.opts.workerInactiveCheckInterval!,
         workerDeadTimeout: this.opts.workerHeartbeatInterval! * 2,
@@ -157,32 +171,7 @@ export class JobScheduler {
     data: T,
     options: EnqueueOptions = {}
   ): Promise<string> {
-    // Get the job.
-    const job = this.jobs.get(type);
-    if (!job) {
-      throw new JobDefinitionNotFoundError(type);
-    }
-
-    // Validate the job data against the schema
-    const validData = await job.schema.parseAsync(data);
-
-    // Calculate expiration if provided.
-    const expiresAt = options.expiresIn
-      ? new Date(Date.now() + parseDuration(options.expiresIn))
-      : options.expiresAt;
-
-    // Create the job and return its ID
-    const jobId = await this.storage.createJob({
-      type,
-      data: validData,
-      maxRetries: options.maxRetries,
-      priority: options.priority ?? job.priority,
-      referenceId: options.referenceId,
-      expiresAt,
-      backoffStrategy: options.backoffStrategy,
-    });
-
-    return jobId;
+    return this.stateMachine.enqueue(type, data, options);
   }
 
   /**
@@ -306,15 +295,6 @@ export class JobScheduler {
   }
 
   /**
-   * Touch a job to keep it alive
-   */
-  private async touchJob(jobId: string): Promise<void> {
-    await this.storage.updateJob(jobId, {
-      lockedAt: new Date(),
-    });
-  }
-
-  /**
    * Start the scheduler.
    */
   async start(): Promise<void> {
@@ -378,9 +358,6 @@ export class JobScheduler {
         await new Promise((resolve) => setTimeout(resolve, pollInterval));
       }
     }
-
-    // Close storage
-    await this.storage.close();
   }
 
   /**
@@ -397,7 +374,6 @@ export class JobScheduler {
       pending: 0,
       completed: 0,
       failed: 0,
-      averageDuration: 0,
       deadLetterJobs: deadLetterJobs.length,
       types: {},
       storage: storageMetrics,
@@ -445,13 +421,6 @@ export class JobScheduler {
           metrics.types[job.type].failed++;
           break;
       }
-    }
-
-    // Calculate average duration from successful jobs
-    const successful = jobs.filter((r) => r.status === 'completed' && r.executionDuration);
-    if (successful.length > 0) {
-      const totalDuration = successful.reduce((sum, r) => sum + (r.executionDuration || 0), 0);
-      metrics.averageDuration = totalDuration / successful.length;
     }
 
     return metrics;

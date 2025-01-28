@@ -377,10 +377,6 @@ export class MockJobStorage implements JobStorage {
       id,
       createdAt: now,
       updatedAt: now,
-      enabled: true,
-      data: validJob.data ?? {},
-      lastScheduledAt: null,
-      nextRunAt: null,
     });
 
     this.scheduledJobs.set(id, newJob);
@@ -424,12 +420,23 @@ export class MockJobStorage implements JobStorage {
    * @param query - Optional partial scheduled job data to filter by
    * @returns Promise of matching scheduled jobs
    */
-  async listScheduledJobs(query?: Partial<ScheduledJob>): Promise<ScheduledJob[]> {
-    const jobs = Array.from(this.scheduledJobs.values());
-    if (!query) return jobs;
-    return jobs.filter((job) =>
-      Object.entries(query).every(([key, value]) => job[key as keyof ScheduledJob] === value)
-    );
+  async listScheduledJobs(filter?: {
+    enabled?: boolean;
+    nextRunBefore?: Date;
+  }): Promise<ScheduledJob[]> {
+    let jobs = Array.from(this.scheduledJobs.values());
+
+    // Filter by enabled status if specified
+    if (filter?.enabled !== undefined) {
+      jobs = jobs.filter((job) => job.enabled === filter.enabled);
+    }
+
+    // Filter by nextRunAt if specified
+    if (filter?.nextRunBefore) {
+      jobs = jobs.filter((job) => job.nextRunAt && job.nextRunAt <= filter.nextRunBefore!);
+    }
+
+    return jobs;
   }
 
   /**

@@ -114,7 +114,7 @@ export class JobStateMachine {
     return jobId;
   }
 
-  async start(job: Job): Promise<{ jobRunId: string }> {
+  async start(job: Job): Promise<{ jobRunId: string; attempt: number }> {
     return this.cfg.storage.transaction(async () => {
       const nextState = this.validateTransition(job.status as JobState, JobEvent.Start);
 
@@ -147,7 +147,7 @@ export class JobStateMachine {
         maxAttempts: job.maxRetries,
       });
 
-      return { jobRunId };
+      return { jobRunId, attempt: jobRuns.length + 1 };
     });
   }
 

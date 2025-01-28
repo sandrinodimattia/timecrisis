@@ -4,7 +4,8 @@ import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
 import { parseDuration } from '../lib/duration.js';
 import { ScheduledJob } from '../storage/schemas/index.js';
-import { LeaderElection } from '../leader/index.js';
+import { JobStateMachine } from '../state-machine/index.js';
+import { LeaderElection } from '../concurrency/leader-election.js';
 
 export interface ScheduledJobsConfig {
   /**
@@ -18,6 +19,11 @@ export interface ScheduledJobsConfig {
   storage: JobStorage;
 
   /**
+   * State machine.
+   */
+  stateMachine: JobStateMachine;
+
+  /**
    * Leader election process.
    */
   leaderElection: LeaderElection;
@@ -27,11 +33,6 @@ export interface ScheduledJobsConfig {
    * If a job's nextRunAt is older than this, it will be skipped
    */
   scheduledJobMaxStaleAge: number;
-
-  /**
-   * Function to enqueue a job.
-   */
-  enqueueJob: (type: string, data: unknown) => Promise<void>;
 
   /**
    * Interval in milliseconds at which to check for scheduled jobs.
@@ -153,7 +154,7 @@ export class ScheduledJobsTask {
           });
 
           // Execute the job
-          await this.cfg.enqueueJob(job.type, job.data);
+          await this.cfg.stateMachine.enqueue(job.type, job.data);
 
           // Update the last run time and calculate next run
           const executionTime = new Date();

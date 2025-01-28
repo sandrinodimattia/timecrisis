@@ -1,5 +1,6 @@
 import { JobStorage } from '../storage/types.js';
 import { JobContext, JobDefinition } from './types.js';
+import { formatLockName } from '../concurrency/job-lock.js';
 
 /**
  * Implementation of the JobContext interface.
@@ -10,7 +11,9 @@ export class JobContextImpl implements JobContext {
   public readonly attempt: number;
   public readonly maxRetries: number;
   public readonly payload: unknown;
-  private readonly touchFn: () => Promise<void>;
+
+  private readonly worker: string;
+  private readonly jobLockTTL: number;
   private readonly storage: JobStorage;
   private readonly jobDefinition: JobDefinition;
   private readonly shutdownRef: WeakRef<{ isShuttingDown: boolean }>;
@@ -18,22 +21,24 @@ export class JobContextImpl implements JobContext {
   constructor(
     storage: JobStorage,
     jobDefinition: JobDefinition,
+    worker: string,
+    jobLockTTL: number,
     jobId: string,
     jobRunId: string,
     attempt: number,
     maxRetries: number,
     payload: unknown,
-    touchFn: () => Promise<void>,
     shutdownRef: WeakRef<{ isShuttingDown: boolean }>
   ) {
     this.storage = storage;
     this.jobDefinition = jobDefinition;
+    this.worker = worker;
+    this.jobLockTTL = jobLockTTL;
     this.jobId = jobId;
     this.jobRunId = jobRunId;
     this.attempt = attempt;
     this.maxRetries = maxRetries;
     this.payload = payload;
-    this.touchFn = touchFn;
     this.shutdownRef = shutdownRef;
   }
 
@@ -67,7 +72,7 @@ export class JobContextImpl implements JobContext {
    * Keep the job lock alive (for long-running jobs).
    */
   async touch(): Promise<void> {
-    await this.touchFn();
+    await this.storage.renewLock(formatLockName(this.jobId), this.worker, this.jobLockTTL);
   }
 
   /**
@@ -82,7 +87,7 @@ export class JobContextImpl implements JobContext {
     // Update both the job run and the parent job with the new progress
     await Promise.all([
       this.storage.updateJobRun(this.jobRunId, { progress }),
-      this.storage.updateJob(this.jobId, { progress }),
+      this.storage.renewLock(formatLockName(this.jobId), this.worker, this.jobLockTTL),
     ]);
   }
 

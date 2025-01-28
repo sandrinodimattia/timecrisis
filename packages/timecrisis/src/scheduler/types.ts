@@ -117,11 +117,6 @@ export interface SchedulerMetrics {
   deadLetterJobs: number;
 
   /**
-   * Average duration of job execution in milliseconds.
-   **/
-  averageDuration: number;
-
-  /**
    * Metrics broken down by job type.
    **/
   types: Record<

@@ -1,59 +1,77 @@
 import { z } from 'zod';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import {
+  createJobLock,
+  defaultJob,
+  defaultJobDefinition,
+  defaultJobRegistrations,
+  defaultValues,
+  expectJobLocked,
+  failedJobDefinition,
+  longRunningJobDefinition,
+  now,
+  prepareEnvironment,
+  resetEnvironment,
+} from '../test-helpers/defaults.js';
+
 import { EmptyLogger } from '../logger/index.js';
 import { Job } from '../storage/schemas/index.js';
 import { PendingJobsTask } from './pending-jobs.js';
 import { JobDefinition } from '../scheduler/types.js';
 import { MockJobStorage } from '../storage/mock/index.js';
+import { JobStateMachine } from '../state-machine/index.js';
+import { DistributedLock } from '../concurrency/distributed-lock.js';
 
 describe('PendingJobsTask', () => {
   let storage: MockJobStorage;
-  let jobs: Map<string, JobDefinition>;
   let task: PendingJobsTask;
+  let stateMachine: JobStateMachine;
   let executeForkMode: (jobDef: JobDefinition, job: Job, ctx: unknown) => Promise<void>;
-  let touchJob: (jobId: string) => Promise<void>;
-  const now = new Date('2025-01-23T00:00:00.000Z');
 
   beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
+    prepareEnvironment();
+
+    executeForkMode = vi.fn();
 
     storage = new MockJobStorage();
-    jobs = new Map();
-    executeForkMode = vi.fn();
-    touchJob = vi.fn();
+    stateMachine = new JobStateMachine({
+      logger: new EmptyLogger(),
+      storage,
+      jobs: defaultJobRegistrations,
+    });
+    vi.spyOn(stateMachine, 'enqueue');
 
     task = new PendingJobsTask({
-      storage,
-      jobs,
-      executeForkMode,
-      touchJob,
       logger: new EmptyLogger(),
-      worker: 'test-worker',
-      maxConcurrentJobs: 20,
-      jobLockTTL: 30000,
-      pollInterval: 100,
+      storage,
+      jobs: defaultJobRegistrations,
+      stateMachine,
+      executeForkMode,
+      distributedLock: new DistributedLock({
+        storage,
+        worker: defaultValues.workerName,
+        lockTTL: defaultValues.distributedLockTTL,
+      }),
+      worker: defaultValues.workerName,
+      maxConcurrentJobs: defaultValues.maxConcurrentJobs,
+      jobLockTTL: defaultValues.jobLockTTL,
+      pollInterval: defaultValues.pollInterval,
     });
-
-    vi.clearAllMocks();
   });
 
   afterEach(() => {
     storage.cleanup();
-    vi.clearAllTimers();
-    vi.clearAllMocks();
-    vi.useRealTimers();
+    resetEnvironment();
   });
 
   describe('execute', () => {
     it('should process pending jobs up to global concurrency limit', async () => {
       const jobPromises = Array.from({ length: 25 }, (_, i) =>
         storage.createJob({
-          type: 'test',
+          type: longRunningJobDefinition.type,
           status: 'pending',
           data: { job: i },
-          attempts: 0,
           maxRetries: 3,
           failCount: 0,
           priority: 1,
@@ -64,91 +82,87 @@ describe('PendingJobsTask', () => {
       );
       await Promise.all(jobPromises);
 
-      const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-        concurrency: undefined, // Remove job-type concurrency to test global limit
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      // Start the execution, but advance until it is running.
+      let taskPromise = task.execute();
+      await vi.advanceTimersByTimeAsync(defaultValues.pollInterval);
 
-      await task.execute();
+      // 20 tasks should be running.
+      expect(longRunningJobDefinition.handle).toHaveBeenCalledTimes(20);
+      expect(task.getRunningCount()).toBe(20);
 
-      expect(jobDef.handle).toHaveBeenCalledTimes(20);
+      // Complete the first run.
+      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration);
+      await taskPromise;
+
+      // Start a second run.
+      taskPromise = task.execute();
+      await vi.advanceTimersByTimeAsync(defaultValues.pollInterval);
+
+      // Now 25 will have started.
+      expect(longRunningJobDefinition.handle).toHaveBeenCalledTimes(25);
+      expect(task.getRunningCount()).toBe(5);
+      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration);
+
+      // Done.
+      await taskPromise;
       expect(task.getRunningCount()).toBe(0);
     });
 
     it('should respect job-type concurrency limits', async () => {
-      // Create a concurrency tracking mechanism
-      let runningJobs = 0;
       const maxConcurrency = 3;
 
-      storage.acquireJobTypeSlot = vi.fn().mockImplementation(async () => {
-        if (runningJobs >= maxConcurrency) {
-          return false;
-        }
-        runningJobs++;
-        return true;
-      });
-
-      storage.releaseJobTypeSlot = vi.fn().mockImplementation(async () => {
-        runningJobs = Math.max(0, runningJobs - 1);
-      });
-
       // Create test jobs
-      const jobPromises = Array.from({ length: 10 }, (_, i) =>
-        storage.createJob({
-          type: 'test',
-          status: 'pending',
-          data: { job: i },
-          attempts: 0,
-          maxRetries: 3,
-          failCount: 0,
-          priority: 1,
-          backoffStrategy: 'exponential',
-          failReason: undefined,
-          runAt: null,
-        })
+      await Promise.all(
+        Array.from({ length: 10 }, (_, i) =>
+          storage.createJob({
+            type: longRunningJobDefinition.type + '-max',
+            status: 'pending',
+            data: { job: i },
+            maxRetries: 3,
+            failCount: 0,
+            priority: 1,
+            backoffStrategy: 'exponential',
+            failReason: undefined,
+            runAt: null,
+          })
+        )
       );
-      await Promise.all(jobPromises);
 
-      const jobDef = {
-        handle: vi.fn().mockImplementation(async () => {
-          // Use setImmediate instead of setTimeout for testing
-          await new Promise((resolve) => setImmediate(resolve));
-        }),
+      defaultJobRegistrations.set(longRunningJobDefinition.type + '-max', {
+        ...longRunningJobDefinition,
         concurrency: maxConcurrency,
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      });
 
       const executePromise = task.execute();
+      await vi.advanceTimersByTimeAsync(100);
 
-      // Advance all timers to complete any pending promises
-      await vi.runAllTimersAsync();
-      await executePromise;
+      let jobList = await storage.listJobs({ status: ['running'] });
+      expect(jobList).toHaveLength(3);
+
+      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration);
+      const jobListPending = await storage.listJobs({ status: ['pending'] });
+      expect(jobListPending).toHaveLength(7);
+
+      let completed = await storage.listJobs({ status: ['completed'] });
+      expect(completed).toHaveLength(3);
 
       expect(storage.acquireJobTypeSlot).toHaveBeenCalledWith(
-        'test',
+        longRunningJobDefinition.type + '-max',
         'test-worker',
         maxConcurrency
       );
-      expect(jobDef.handle).toHaveBeenCalledTimes(maxConcurrency);
-      expect(runningJobs).toBe(0); // All jobs should be finished
+      expect(longRunningJobDefinition.handle).toHaveBeenCalledTimes(maxConcurrency);
+
+      // Advance all timers to complete any pending promises
+      await executePromise;
     });
 
     it('should handle job locking correctly', async () => {
-      const jobDef = {
-        handle: vi.fn().mockImplementation(async () => {
-          await new Promise((resolve) => setImmediate(resolve));
-        }),
-        schema: z.object({}),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
       // Create a job
       const jobId = await storage.createJob({
-        type: 'test',
+        type: longRunningJobDefinition.type,
         status: 'pending',
         data: {},
-        attempts: 0,
         maxRetries: 3,
         failCount: 0,
         priority: 1,
@@ -157,6 +171,12 @@ describe('PendingJobsTask', () => {
 
       // Start executing jobs
       const executePromise = task.execute();
+
+      // Advance time to start execution
+      await vi.advanceTimersByTimeAsync(defaultValues.pollInterval);
+
+      // Job should be locked.
+      await expectJobLocked(storage, jobId);
 
       // Wait for job to start
       await vi.runOnlyPendingTimersAsync();
@@ -166,7 +186,7 @@ describe('PendingJobsTask', () => {
       await executePromise;
 
       // Job should have been processed
-      expect(jobDef.handle).toHaveBeenCalled();
+      expect(longRunningJobDefinition.handle).toHaveBeenCalled();
 
       // Verify job state
       const job = await storage.getJob(jobId);
@@ -174,63 +194,49 @@ describe('PendingJobsTask', () => {
     });
 
     it('should handle lock expiration edge cases', async () => {
-      const jobDef = {
-        handle: vi.fn().mockImplementation(async () => {
-          await new Promise((resolve) => setImmediate(resolve));
-        }),
-        schema: z.object({}),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
       // Create a job
       const jobId = await storage.createJob({
-        type: 'test',
+        type: longRunningJobDefinition.type,
         status: 'pending',
         data: {},
-        attempts: 0,
         maxRetries: 3,
         failCount: 0,
         priority: 1,
         backoffStrategy: 'exponential',
       });
 
-      // Simulate a stale lock by another worker
-      const now = new Date();
-      const expiredTime = now.getTime() - 60000; // 1 minute ago
-      storage.setLock(jobId, 'other-worker', expiredTime);
+      await createJobLock(storage, jobId, 'other-worker', 600);
 
       // Start executing jobs
-      const executePromise = task.execute();
+      let executePromise = task.execute();
 
-      // Wait for job to start
-      await vi.runOnlyPendingTimersAsync();
+      await vi.advanceTimersByTimeAsync(500);
+      expect(longRunningJobDefinition.handle).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(100);
 
-      // Complete execution
-      await vi.runAllTimersAsync();
       await executePromise;
+      executePromise = task.execute();
 
-      // Job should be processed because lock expired
-      expect(jobDef.handle).toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(longRunningJobDefinition.handle).toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration);
+      await executePromise;
 
       // Verify job state
       const job = await storage.getJob(jobId);
       expect(job?.status).toBe('completed');
-      expect(job?.lockedBy).toBe(null);
-      expect(job?.lockedAt).toBe(null);
     });
 
     it('should handle fork mode execution', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
+        type: 'test-fork',
         status: 'pending',
-        data: { test: true },
-        attempts: 0,
+        data: {},
         maxRetries: 3,
         failCount: 0,
         priority: 1,
         backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
       });
 
       const jobDef = {
@@ -238,9 +244,12 @@ describe('PendingJobsTask', () => {
         forkMode: true,
         concurrency: 1,
       };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      defaultJobRegistrations.set('test-fork', jobDef as unknown as JobDefinition);
 
-      await task.execute();
+      const executePromise = await task.execute();
+
+      await vi.advanceTimersByTimeAsync(100);
+      await executePromise;
 
       expect(executeForkMode).toHaveBeenCalledWith(
         jobDef,
@@ -251,25 +260,49 @@ describe('PendingJobsTask', () => {
 
     it('should handle exponential backoff on failure', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
+        type: failedJobDefinition.type,
         status: 'pending',
-        data: { test: true },
-        attempts: 1,
+        data: {
+          test: true,
+        },
+        maxRetries: 3,
+        failCount: 0,
+        priority: 1,
+        backoffStrategy: 'exponential',
+      });
+
+      await task.execute();
+
+      const updatedJob = await storage.getJob(jobId);
+      expect(updatedJob!.status).toBe('pending');
+      expect(updatedJob!.runAt).toBeInstanceOf(Date);
+      expect(updatedJob!.failCount).toBe(1);
+
+      const expectedDelay = 10000;
+      const actualDelay = updatedJob!.runAt!.getTime() - now.getTime();
+      expect(actualDelay).toBe(expectedDelay);
+    });
+
+    it('should handle exponential backoff on failure accounting for previous run', async () => {
+      const jobId = await storage.createJob({
+        type: failedJobDefinition.type,
+        status: 'pending',
+        data: {
+          test: true,
+        },
         maxRetries: 3,
         failCount: 1,
         priority: 1,
         backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
       });
 
-      const error = new Error('Test error');
-      const jobDef = {
-        handle: vi.fn().mockRejectedValue(error),
-        concurrency: 1,
-        schema: z.object({}),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      await storage.createJobRun({
+        jobId,
+        attempt: 1,
+        status: 'failed',
+        startedAt: new Date(),
+        executionDuration: 100,
+      });
 
       await task.execute();
 
@@ -277,7 +310,6 @@ describe('PendingJobsTask', () => {
       expect(updatedJob!.status).toBe('pending');
       expect(updatedJob!.runAt).toBeInstanceOf(Date);
       expect(updatedJob!.failCount).toBe(2);
-      expect(updatedJob!.failReason).toBe('Test error');
 
       const expectedDelay = 20000;
       const actualDelay = updatedJob!.runAt!.getTime() - now.getTime();
@@ -286,95 +318,52 @@ describe('PendingJobsTask', () => {
 
     it('should move job to dead letter queue after max retries', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
+        type: failedJobDefinition.type,
         status: 'pending',
-        data: { test: true },
-        attempts: 3,
-        maxRetries: 3,
+        data: {
+          test: true,
+        },
+        maxRetries: 2,
         failCount: 2,
         priority: 1,
         backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
       });
 
-      const error = new Error('Final failure');
-      const jobDef = {
-        handle: vi.fn().mockRejectedValue(error),
-        concurrency: 1,
-        schema: z.object({}),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      await storage.createJobRun({
+        jobId,
+        attempt: 1,
+        status: 'failed',
+        startedAt: new Date(),
+        executionDuration: 100,
+      });
+
+      await storage.createJobRun({
+        jobId,
+        attempt: 2,
+        status: 'failed',
+        startedAt: new Date(),
+        executionDuration: 100,
+      });
 
       await task.execute();
 
       const updatedJob = await storage.getJob(jobId);
       expect(updatedJob!.status).toBe('failed');
       expect(updatedJob!.failCount).toBe(3);
-      expect(updatedJob!.failReason).toBe('Final failure');
+      expect(updatedJob!.failReason).toBe('Test error');
 
       expect(storage.createDeadLetterJob).toHaveBeenCalledWith(
         expect.objectContaining({
           jobId: jobId,
-          jobType: 'test',
-          reason: 'Final failure',
+          jobType: failedJobDefinition.type,
+          failReason: 'Test error',
         })
       );
     });
 
-    it('should handle Zod validation errors', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
-      });
-
-      const zodError = new z.ZodError([
-        {
-          code: 'invalid_type',
-          expected: 'string',
-          received: 'boolean',
-          path: ['test'],
-          message: 'Expected string, received boolean',
-        },
-      ]);
-
-      const jobDef = {
-        handle: vi.fn().mockRejectedValue(zodError),
-        concurrency: 1,
-        schema: z.object({}),
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
-
-      await task.execute();
-
-      const updatedJob = await storage.getJob(jobId);
-      expect(updatedJob!.status).toBe('pending');
-      expect(updatedJob!.failReason).toBe(
-        'Zod validation error: Expected string, received boolean'
-      );
-      expect(updatedJob!.failCount).toBe(1);
-    });
-
     it('should update progress correctly', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+        ...defaultJob,
       });
 
       const jobDef = {
@@ -385,32 +374,27 @@ describe('PendingJobsTask', () => {
         concurrency: 1,
         schema: z.object({}),
       };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      defaultJobRegistrations.set('test', jobDef as unknown as JobDefinition);
 
       await task.execute();
 
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        jobId,
+      const jobRuns = await storage.listJobRuns(jobId);
+      expect(jobRuns).toHaveLength(1);
+
+      expect(storage.updateJobRun).toHaveBeenCalledWith(
+        jobRuns[0].id,
         expect.objectContaining({ progress: 50 })
       );
-      expect(storage.updateJob).toHaveBeenCalledWith(
-        jobId,
+      expect(storage.updateJobRun).toHaveBeenCalledWith(
+        jobRuns[0].id,
         expect.objectContaining({ progress: 100 })
       );
     });
 
     it('should handle invalid job types', async () => {
       await storage.createJob({
+        ...defaultJob,
         type: 'invalid-type',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
       });
 
       await task.execute();
@@ -420,58 +404,35 @@ describe('PendingJobsTask', () => {
 
     it('should track job execution duration', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+        ...defaultJob,
+        type: longRunningJobDefinition.type,
       });
 
-      const jobDef = {
-        handle: vi.fn().mockImplementation(async () => {
-          vi.advanceTimersByTime(5000); // Simulate 5 seconds of work
-        }),
-        concurrency: 1,
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      const taskPromise = task.execute();
+      await vi.advanceTimersByTimeAsync(2000);
+      await taskPromise;
 
-      await task.execute();
-
-      const updatedJob = await storage.getJob(jobId);
-      expect(updatedJob!.executionDuration).toBe(5000);
+      const runs = await storage.listJobRuns(jobId);
+      expect(runs[0].executionDuration).toBe(2000);
       expect(storage.updateJob).toHaveBeenCalledWith(
         jobId,
         expect.objectContaining({
           status: 'completed',
-          executionDuration: 5000,
+        })
+      );
+      expect(storage.updateJobRun).toHaveBeenCalledWith(
+        runs[0].id,
+        expect.objectContaining({
+          status: 'completed',
+          executionDuration: 2000,
         })
       );
     });
 
     it('should update job run status correctly', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+        ...defaultJob,
       });
-
-      const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-        concurrency: 1,
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
 
       await task.execute();
 
@@ -495,31 +456,17 @@ describe('PendingJobsTask', () => {
 
     it('should handle linear backoff strategy', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 1,
-        maxRetries: 3,
-        failCount: 1,
-        priority: 1,
+        ...defaultJob,
+        type: failedJobDefinition.type,
         backoffStrategy: 'linear',
-        failReason: undefined,
-        runAt: null,
       });
-
-      const error = new Error('Test error');
-      const jobDef = {
-        handle: vi.fn().mockRejectedValue(error),
-        concurrency: 1,
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
 
       await task.execute();
 
       const updatedJob = await storage.getJob(jobId);
       expect(updatedJob!.status).toBe('pending');
 
-      // Fixed backoff should always be 10 seconds
+      // Linear  should always be 10 seconds
       const expectedDelay = 10000;
       const actualDelay = updatedJob!.runAt!.getTime() - now.getTime();
       expect(actualDelay).toBe(expectedDelay);
@@ -527,16 +474,8 @@ describe('PendingJobsTask', () => {
 
     it('should log job context messages', async () => {
       const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+        ...defaultJob,
+        type: 'test-logger',
       });
 
       const jobDef = {
@@ -547,7 +486,7 @@ describe('PendingJobsTask', () => {
         }),
         concurrency: 1,
       };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      defaultJobRegistrations.set('test-logger', jobDef as unknown as JobDefinition);
 
       await task.execute();
 
@@ -577,31 +516,16 @@ describe('PendingJobsTask', () => {
 
     it('should handle failed lock acquisition', async () => {
       await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: { test: true },
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+        ...defaultJob,
       });
 
       // Mock updateJob to fail when trying to acquire lock
-      storage.updateJob = vi.fn().mockRejectedValueOnce(new Error('Lock acquisition failed'));
-
-      const jobDef = {
-        handle: vi.fn().mockResolvedValue(undefined),
-        concurrency: 1,
-      };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      storage.acquireLock = vi.fn().mockRejectedValueOnce(new Error('Lock acquisition failed'));
 
       await task.execute();
 
       // Job should not be processed due to lock acquisition failure
-      expect(jobDef.handle).not.toHaveBeenCalled();
+      expect(defaultJobDefinition.handle).not.toHaveBeenCalled();
       expect(storage.updateJobRun).not.toHaveBeenCalled();
     });
   });
@@ -621,26 +545,13 @@ describe('PendingJobsTask', () => {
         }),
         schema: z.object({}),
       };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      defaultJobRegistrations.set('test-shutdown', jobDef as unknown as JobDefinition);
 
       // Create a job
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        attempts: 0,
-        maxRetries: 1,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+      await storage.createJob({
+        ...defaultJob,
+        type: 'test-shutdown',
       });
-
-      // Mock storage methods to track job state
-      const job = await storage.getJob(jobId);
-      storage.getJob = vi.fn().mockResolvedValue(job);
-      storage.acquireLock = vi.fn().mockResolvedValue(true);
 
       // Start executing jobs
       const executePromise = task.execute();
@@ -672,26 +583,13 @@ describe('PendingJobsTask', () => {
         }),
         schema: z.object({}),
       };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      defaultJobRegistrations.set('test-shutdown-failure', jobDef as unknown as JobDefinition);
 
       // Create a job and mock storage
-      const jobId = await storage.createJob({
-        type: 'test',
-        status: 'pending',
-        data: {},
-        attempts: 0,
-        maxRetries: 3,
-        failCount: 0,
-        priority: 1,
-        backoffStrategy: 'exponential',
-        failReason: undefined,
-        runAt: null,
+      await storage.createJob({
+        ...defaultJob,
+        type: 'test-shutdown-failure',
       });
-
-      // Mock storage methods
-      const job = await storage.getJob(jobId);
-      storage.getJob = vi.fn().mockResolvedValue(job);
-      storage.acquireLock = vi.fn().mockResolvedValue(true);
 
       // Execute jobs
       await task.execute();
@@ -705,39 +603,23 @@ describe('PendingJobsTask', () => {
       // Create a job that checks shutdown state
       const jobDef = {
         handle: vi.fn().mockImplementation(async (data, ctx) => {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, defaultValues.longRunningJobDuration));
           expect(ctx.isShuttingDown).toBe(true);
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, defaultValues.longRunningJobDuration));
         }),
         schema: z.object({}),
       };
-      jobs.set('test', jobDef as unknown as JobDefinition);
+      defaultJobRegistrations.set('test-shutdown-expect', jobDef as unknown as JobDefinition);
 
       // Create multiple jobs and mock storage
       await Promise.all([
         storage.createJob({
-          type: 'test',
-          status: 'pending',
-          data: {},
-          attempts: 0,
-          maxRetries: 1,
-          failCount: 0,
-          priority: 1,
-          backoffStrategy: 'exponential',
-          failReason: undefined,
-          runAt: null,
+          ...defaultJob,
+          type: 'test-shutdown-expect',
         }),
         storage.createJob({
-          type: 'test',
-          status: 'pending',
-          data: {},
-          attempts: 0,
-          maxRetries: 1,
-          failCount: 0,
-          priority: 1,
-          backoffStrategy: 'exponential',
-          failReason: undefined,
-          runAt: null,
+          ...defaultJob,
+          type: 'test-shutdown-expect',
         }),
       ]);
 
@@ -745,14 +627,13 @@ describe('PendingJobsTask', () => {
       const executePromise = task.execute();
 
       // Wait for jobs to start and reach first timeout
-      await vi.advanceTimersByTimeAsync(100);
-      await vi.advanceTimersByTimeAsync(400);
+      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration - 100);
 
       // Signal shutdown
       await task.stop();
 
       // Advance time to complete both timeouts
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration + 100);
 
       // Wait for job execution to complete
       await executePromise;

@@ -4,8 +4,11 @@ import { Logger } from '../logger/index.js';
 import { Job } from '../storage/schemas/index.js';
 import { JobStorage } from '../storage/types.js';
 import { JobContextImpl } from '../scheduler/context.js';
+import { JobStateMachine } from '../state-machine/index.js';
+import { formatLockName } from '../concurrency/job-lock.js';
+import { JobContext, JobDefinition } from '../scheduler/types.js';
+import { DistributedLock } from '../concurrency/distributed-lock.js';
 import { GlobalConcurrencyManager } from '../concurrency/global-concurrency.js';
-import { JobContext, JobDefinition, JobDefinitionNotFoundError } from '../scheduler/types.js';
 
 export interface PendingJobsConfig {
   /**
@@ -17,6 +20,16 @@ export interface PendingJobsConfig {
    * Logger.
    */
   logger: Logger;
+
+  /**
+   * Job state machine.
+   */
+  stateMachine: JobStateMachine;
+
+  /**
+   * Distributed lock.
+   */
+  distributedLock: DistributedLock;
 
   /**
    * Job definitions.
@@ -42,13 +55,6 @@ export interface PendingJobsConfig {
    * Poll interval in milliseconds.
    */
   pollInterval: number;
-
-  /**
-   * Function to touch a job in the storage.
-   * @param jobId
-   * @returns
-   */
-  touchJob: (jobId: string) => Promise<void>;
 
   /**
    * Execute the job in fork mode.
@@ -118,8 +124,15 @@ export class PendingJobsTask {
    * Process pending jobs.
    */
   public async execute(): Promise<void> {
+    // Shutting down.
     if (this.shutdownState.isShuttingDown) {
-      this.logger.info('Skipping execution due to shutdown');
+      this.logger.debug('Skipping execution due to shutdown');
+      return;
+    }
+
+    // Max running jobs already hit.
+    if (!this.globalConcurrency.canRunMore()) {
+      this.logger.debug('Skipping execution due to global concurrency limit');
       return;
     }
 
@@ -136,87 +149,142 @@ export class PendingJobsTask {
       jobs: pendingJobs.length,
     });
 
-    // Process valid to respect concurrency limits.
-    const promises = pendingJobs
-      .filter((job) => {
-        const jobDef = this.cfg.jobs.get(job.type);
-        if (!jobDef) {
+    // Get all valid jobs.
+    const validPendingJobs = pendingJobs
+      .map((job) => {
+        const definition = this.cfg.jobs.get(job.type);
+        if (!definition) {
           this.logger.warn('Invalid job type, skipping job', {
             jobId: job.id,
             type: job.type,
           });
-          return false;
+          return {
+            job,
+            jobDefintion: undefined,
+          };
         }
 
-        // Try to acquire global concurrency slot.
-        if (!this.globalConcurrency.acquire(job.id)) {
-          this.logger.debug('Failed to acquire global concurrency slot for job', {
+        return {
+          job,
+          jobDefintion: definition,
+        };
+      })
+      .filter((pending) => typeof pending.jobDefintion !== 'undefined') as {
+      job: Job;
+      jobDefintion: JobDefinition;
+    }[];
+
+    // Job execution.
+    const executionPromises = validPendingJobs.map(async ({ job, jobDefintion }) => {
+      // Acquire a global concurrency slot.
+      if (!this.globalConcurrency.acquire(job.id)) {
+        this.logger.debug('Failed to acquire global concurrency slot for job', {
+          jobId: job.id,
+          type: job.type,
+        });
+        return;
+      }
+
+      try {
+        // Acquire a lock for the job.
+        const jobLock = await this.cfg.distributedLock.acquire(formatLockName(job.id));
+        if (!jobLock) {
+          this.logger.debug(`Failed to acquire lock to start job ${job.id}`, {
             jobId: job.id,
             type: job.type,
           });
           return;
         } else {
-          this.logger.debug('Acquired global concurrency slot for job', {
+          this.logger.debug('Acquired job lock', {
             jobId: job.id,
             type: job.type,
           });
         }
 
-        return true;
-      })
-      .map(async (job) => {
         try {
-          const jobDef = this.cfg.jobs.get(job.type);
-          const maxForType = jobDef!.concurrency ?? this.cfg.maxConcurrentJobs;
-
           // Check if concurrency slot is available for this job type.
-          const jobTypeLock = await this.cfg.storage.acquireJobTypeSlot(
+          const canExecuteJobType = await this.cfg.storage.acquireJobTypeSlot(
             job.type,
             this.cfg.worker,
-            maxForType
+            jobDefintion!.concurrency ?? this.cfg.maxConcurrentJobs
           );
-          if (!jobTypeLock) {
-            this.logger.debug('Failed to acquire concurrency slot (type limit) for job', {
+          if (!canExecuteJobType) {
+            this.logger.debug(`Failed to acquire concurrency slot for job type "${job.type}"`, {
               jobId: job.id,
               type: job.type,
             });
             return;
           } else {
-            this.logger.debug('Acquired concurrency slot (type limit) for job', {
+            this.logger.debug(`Acquired concurrency slot for job type "${job.type}"`, {
               jobId: job.id,
               type: job.type,
             });
           }
 
+          // Job expired.
+          if (job.expiresAt && job.expiresAt < now) {
+            // Fail the job.
+            await this.cfg.stateMachine.fail(
+              job,
+              undefined,
+              false,
+              `Job expired (expiresAt=${job.expiresAt})`
+            );
+            return;
+          }
+
+          // Process the job by starting it.
+          const { jobRunId, attempt } = await this.cfg.stateMachine.start(job);
+
+          // Create job context with touch function.
+          const ctx = this.createJobContext(jobDefintion!, job, {
+            id: jobRunId,
+            attempt,
+            startedAt: new Date(),
+          });
+
           try {
-            // Try to acquire lock for the job
-            const locked = await this.tryAcquireLock(job);
-            if (!locked) {
-              this.logger.debug('Failed to acquire lock for job', {
+            if (jobDefintion!.forkMode === true) {
+              this.logger.debug('Executing job in fork mode', {
                 jobId: job.id,
                 type: job.type,
+                forkHelperPath: jobDefintion!.forkHelperPath,
               });
-              await this.cfg.storage.releaseJobTypeSlot(job.type, this.cfg.worker);
-              return;
+
+              await this.cfg.executeForkMode(jobDefintion!, job, ctx);
             } else {
-              this.logger.debug('Acquired lock for job', {
+              this.logger.debug('Executing job handler in process', {
                 jobId: job.id,
                 type: job.type,
               });
+
+              await jobDefintion!.handle(job.data as typeof jobDefintion.schema, ctx);
             }
 
-            // Process the job
-            await this.processJob(job);
-          } catch (err) {
-            this.logger.error('Error processing job', {
+            this.logger.debug('Job completed', {
               jobId: job.id,
               type: job.type,
-              error: err instanceof Error ? err.message : String(err),
-              error_stack: err instanceof Error ? err.stack : undefined,
             });
-          } finally {
-            // Release concurrency slot regardless of job success or failure
-            await this.cfg.storage.releaseJobTypeSlot(job.type, this.cfg.worker);
+
+            // Mark job as completed.
+            await this.cfg.stateMachine.complete(job, jobRunId);
+          } catch (error: unknown) {
+            let errorMessage = error instanceof Error ? error.message : String(error);
+            if (error instanceof z.ZodError) {
+              const flat = error.errors.map((err) => `${err.message}`).join(',');
+              errorMessage = `Zod validation error: ${flat}`;
+            }
+
+            // Mark job as failed.
+            await this.cfg.stateMachine.fail(
+              job,
+              jobRunId,
+              true,
+              errorMessage,
+              error instanceof Error ? error.stack : undefined
+            );
+
+            throw error;
           }
         } catch (err) {
           this.logger.error('Error processing job', {
@@ -226,185 +294,38 @@ export class PendingJobsTask {
             error_stack: err instanceof Error ? err.stack : undefined,
           });
         } finally {
-          // Release global concurrency slot
-          this.globalConcurrency.release(job.id);
-        }
-      });
-
-    // Wait for all jobs to complete
-    await Promise.all(promises);
-  }
-
-  /**
-   * Process a job.
-   */
-  private async processJob(job: Job): Promise<void> {
-    // Get the job definition.
-    const jobDef = this.cfg.jobs.get(job.type);
-    if (!jobDef) {
-      throw new JobDefinitionNotFoundError(job.type);
-    }
-
-    const now = new Date();
-    const attempt = job.attempts + 1;
-
-    // Update job status to running and increment retry count.
-    await this.cfg.storage.updateJob(job.id, {
-      status: 'running',
-      attempts: attempt,
-      startedAt: now,
-    });
-
-    // Create a new job run.
-    const jobRunId = await this.cfg.storage.createJobRun({
-      jobId: job.id,
-      status: 'running',
-      startedAt: now,
-      attempt,
-    });
-
-    this.logger.debug(`Processing job`, {
-      jobId: job.id,
-      jobRunId: jobRunId,
-      type: job.type,
-      attempt,
-      maxAttempts: job.maxRetries,
-    });
-
-    // Create job context with touch function.
-    const ctx = this.createJobContext(jobDef, job, { id: jobRunId, attempt, startedAt: now });
-
-    const startTime = Date.now();
-    try {
-      if (jobDef.forkMode === true) {
-        this.logger.debug('Executing job in fork mode', {
-          jobId: job.id,
-          type: job.type,
-          forkHelperPath: jobDef.forkHelperPath,
-        });
-        await this.cfg.executeForkMode(jobDef, job, ctx);
-      } else {
-        this.logger.debug('Executing job handler in process', {
-          jobId: job.id,
-          type: job.type,
-        });
-
-        await jobDef.handle(job.data as typeof jobDef.schema, ctx);
-      }
-
-      const duration = Date.now() - startTime;
-
-      // Mark success.
-      await this.cfg.storage.updateJob(job.id, {
-        status: 'completed',
-        progress: 100,
-        executionDuration: duration,
-        lockedAt: null,
-        lockedBy: null,
-        finishedAt: new Date(),
-      });
-
-      // Mark success.
-      await this.cfg.storage.updateJobRun(jobRunId, {
-        status: 'completed',
-        progress: 100,
-        finishedAt: new Date(),
-      });
-
-      this.logger.info('Job completed successfully', {
-        jobId: job.id,
-        type: job.type,
-        executionDuration: duration,
-      });
-
-      await ctx.log('info', `Job completed successfully`);
-    } catch (error: unknown) {
-      const durationMs = Date.now() - startTime;
-      let errorMessage = error instanceof Error ? error.message : String(error);
-      if (error instanceof z.ZodError) {
-        const flat = error.errors.map((err) => `${err.message}`).join(',');
-        errorMessage = `Zod validation error: ${flat}`;
-      }
-
-      this.logger.error('Job failed', {
-        jobId: job.id,
-        type: job.type,
-        error: errorMessage,
-        error_stack: error instanceof Error ? error.stack : undefined,
-        executionDuration: durationMs,
-      });
-
-      // Update job run status.
-      await this.cfg.storage.updateJobRun(jobRunId, {
-        status: 'failed',
-        error: errorMessage,
-        finishedAt: new Date(),
-      });
-
-      // Handle job failure.
-      if (attempt >= job.maxRetries) {
-        // Move to dead letter queue.
-        await this.cfg.storage.createDeadLetterJob({
-          jobId: job.id,
-          jobType: job.type,
-          data: job.data,
-          failedAt: new Date(),
-          reason: errorMessage,
-        });
-
-        // Job failed permanently.
-        await this.cfg.storage.updateJob(job.id, {
-          status: 'failed',
-          failReason: errorMessage,
-          failCount: job.failCount + 1,
-          lockedAt: null,
-          lockedBy: null,
-          executionDuration: durationMs,
-        });
-
-        this.logger.error('Job failed permanently', {
-          jobId: job.id,
-          type: job.type,
-          error: errorMessage,
-          error_stack: error instanceof Error ? error.stack : undefined,
-          durationMs,
-        });
-
-        await ctx.log('error', `Job failed permanently after ${attempt} attempts: ${errorMessage}`);
-      } else {
-        // Calculate backoff delay.
-        let delayMs = 10000;
-        if (job.backoffStrategy === 'exponential') {
-          delayMs = Math.min(attempt * delayMs, 24 * 60 * 60 * 1000); // Max 24 hours
-        }
-
-        this.logger.warn(
-          `Scheduling retry for failed job in ${delayMs} ms (next attempt ${attempt + 1}/${job.maxRetries})`,
-          {
+          this.logger.debug('Release job type slot', {
             jobId: job.id,
             type: job.type,
-            error: errorMessage,
-            durationMs,
-            delayMs,
-          }
-        );
+            worker: this.cfg.worker,
+          });
 
-        const nextRun = new Date(Date.now() + delayMs);
-        await this.cfg.storage.updateJob(job.id, {
-          status: 'pending',
-          failReason: errorMessage,
-          failCount: job.failCount + 1,
-          lockedAt: null,
-          lockedBy: null,
-          executionDuration: durationMs,
-          runAt: nextRun,
+          // Release concurrency slot regardless of job success or failure
+          await this.cfg.storage.releaseJobTypeSlot(job.type, this.cfg.worker);
+
+          this.logger.debug('Release job lock', {
+            jobId: job.id,
+            type: job.type,
+          });
+
+          // Release the lock on the job.
+          await jobLock.release();
+        }
+      } catch (err) {
+        this.logger.error('Error processing job', {
+          jobId: job.id,
+          type: job.type,
+          error: err instanceof Error ? err.message : String(err),
+          error_stack: err instanceof Error ? err.stack : undefined,
         });
-
-        await ctx.log('warn', `Job failed, retrying in ${delayMs}ms: ${errorMessage}`);
+      } finally {
+        // Release global concurrency slot
+        this.globalConcurrency.release(job.id);
       }
+    });
 
-      throw error;
-    }
+    // Wait for all jobs to complete
+    await Promise.all(executionPromises);
   }
 
   /**
@@ -418,51 +339,14 @@ export class PendingJobsTask {
     return new JobContextImpl(
       this.cfg.storage,
       jobDef,
+      this.cfg.worker,
+      this.cfg.jobLockTTL,
       job.id,
       jobRun.id,
       jobRun.attempt,
       job.maxRetries,
       job.data,
-      () => this.cfg.touchJob(job.id),
       this.shutdownRef
     );
-  }
-
-  /**
-   * Try to acquire a lock for a job.
-   */
-  private async tryAcquireLock(job: Job): Promise<boolean> {
-    const now = new Date();
-    const lockLifetime = this.cfg.jobLockTTL;
-
-    // Check if job is already locked.
-    if (job.lockedAt) {
-      const lockAge = now.getTime() - job.lockedAt.getTime();
-      if (lockAge < lockLifetime) {
-        this.logger.debug('Job is already locked', {
-          jobId: job.id,
-          type: job.type,
-          lockAge,
-          lockLifetime,
-        });
-        return false;
-      }
-    }
-
-    try {
-      await this.cfg.storage.updateJob(job.id, {
-        lockedAt: now,
-        lockedBy: this.cfg.worker,
-      });
-
-      return true;
-    } catch (err) {
-      this.logger.error(`Failed to acquire lock for job`, {
-        jobId: job.id,
-        error: err instanceof Error ? err.message : String(err),
-        error_stack: err instanceof Error ? err.stack : undefined,
-      });
-      return false;
-    }
   }
 }

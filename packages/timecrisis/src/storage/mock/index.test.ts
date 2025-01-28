@@ -361,8 +361,8 @@ describe('MockJobStorage', () => {
       expect(job?.scheduleType).toBe('cron');
       expect(job?.data).toEqual({});
       expect(job?.enabled).toBe(true);
-      expect(job?.lastScheduledAt).toBeNull();
-      expect(job?.nextRunAt).toBeNull();
+      expect(job?.lastScheduledAt).toBeUndefined();
+      expect(job?.nextRunAt).toBeUndefined();
       expect(job?.createdAt).toBeInstanceOf(Date);
       expect(job?.updatedAt).toBeInstanceOf(Date);
     });

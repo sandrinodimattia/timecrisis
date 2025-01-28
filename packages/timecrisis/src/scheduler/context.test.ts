@@ -1,14 +1,17 @@
 import { z } from 'zod';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 import { JobDefinition } from './types.js';
 import { JobContextImpl } from './context.js';
 import { JobStorage } from '../storage/types.js';
+import { MockJobStorage } from '../storage/mock/index.js';
+import { defaultJob, defaultValues, now } from '../test-helpers/defaults.js';
 
 describe('JobContextImpl', () => {
   let mockStorage: JobStorage;
   let jobContext: JobContextImpl;
-  let mockTouchFn: ReturnType<typeof vi.fn>;
+  let jobId: string;
+  let jobRunId: string;
 
   const testJobDefinition: JobDefinition = {
     type: 'test-job',
@@ -19,24 +22,27 @@ describe('JobContextImpl', () => {
     handle: async () => {},
   };
 
-  beforeEach(() => {
-    mockStorage = {
-      updateJob: vi.fn(),
-      updateJobRun: vi.fn(),
-      createJobLog: vi.fn(),
-    } as unknown as JobStorage;
+  beforeEach(async () => {
+    mockStorage = new MockJobStorage();
 
-    mockTouchFn = vi.fn();
+    jobId = await mockStorage.createJob({ ...defaultJob, data: { foo: 'test', bar: 42 } });
+    jobRunId = await mockStorage.createJobRun({
+      jobId,
+      status: 'running',
+      startedAt: now,
+      attempt: 1,
+    });
 
     jobContext = new JobContextImpl(
       mockStorage,
       testJobDefinition,
-      'job-123',
-      'job-run-456',
+      defaultValues.workerName,
+      defaultValues.jobLockTTL,
+      jobId,
+      jobRunId,
       1,
       5,
       { foo: 'test', bar: 42 },
-      mockTouchFn,
       new WeakRef({ isShuttingDown: false })
     );
   });
@@ -45,10 +51,7 @@ describe('JobContextImpl', () => {
     it('should update progress in both job and job run', async () => {
       await jobContext.updateProgress(50);
 
-      expect(mockStorage.updateJobRun).toHaveBeenCalledWith('job-run-456', {
-        progress: 50,
-      });
-      expect(mockStorage.updateJob).toHaveBeenCalledWith('job-123', {
+      expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
         progress: 50,
       });
     });
@@ -67,18 +70,12 @@ describe('JobContextImpl', () => {
 
     it('should accept progress at boundaries (0 and 100)', async () => {
       await jobContext.updateProgress(0);
-      expect(mockStorage.updateJobRun).toHaveBeenCalledWith('job-run-456', {
-        progress: 0,
-      });
-      expect(mockStorage.updateJob).toHaveBeenCalledWith('job-123', {
+      expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
         progress: 0,
       });
 
       await jobContext.updateProgress(100);
-      expect(mockStorage.updateJobRun).toHaveBeenCalledWith('job-run-456', {
-        progress: 100,
-      });
-      expect(mockStorage.updateJob).toHaveBeenCalledWith('job-123', {
+      expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
         progress: 100,
       });
     });
@@ -89,7 +86,7 @@ describe('JobContextImpl', () => {
       const newData = { foo: 'updated', bar: 43 };
       await jobContext.updateData(newData);
 
-      expect(mockStorage.updateJob).toHaveBeenCalledWith('job-123', {
+      expect(mockStorage.updateJob).toHaveBeenCalledWith(jobId, {
         data: newData,
       });
       expect(mockStorage.updateJobRun).not.toHaveBeenCalled();
@@ -105,7 +102,7 @@ describe('JobContextImpl', () => {
       const validData = { foo: 'valid', bar: 42 };
       await jobContext.updateData(validData);
 
-      expect(mockStorage.updateJob).toHaveBeenCalledWith('job-123', {
+      expect(mockStorage.updateJob).toHaveBeenCalledWith(jobId, {
         data: validData,
       });
     });
@@ -114,7 +111,7 @@ describe('JobContextImpl', () => {
   describe('touch', () => {
     it('should call the touch function', async () => {
       await jobContext.touch();
-      expect(mockTouchFn).toHaveBeenCalled();
+      expect(mockStorage.renewLock).toHaveBeenCalled();
     });
   });
 
@@ -126,8 +123,8 @@ describe('JobContextImpl', () => {
       await jobContext.log('info', message, metadata);
 
       expect(mockStorage.createJobLog).toHaveBeenCalledWith({
-        jobId: 'job-123',
-        jobRunId: 'job-run-456',
+        jobId,
+        jobRunId,
         level: 'info',
         message,
         metadata,
@@ -155,7 +152,7 @@ describe('JobContextImpl', () => {
 
   describe('getters', () => {
     it('should return correct jobId', () => {
-      expect(jobContext.jobId).toBe('job-123');
+      expect(jobContext.jobId).toBe(jobId);
     });
 
     it('should return correct payload', () => {
