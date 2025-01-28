@@ -58,30 +58,30 @@ export class ConsoleLogger implements Logger {
 
   info(message: string, context?: Record<string, unknown>): void {
     if (this.name) {
-      console.info(`[${this.name}] ${message}`, context);
+      console.info(`${new Date().toISOString()} - [${this.name}] ${message}`, context);
     } else {
-      console.info(message, context);
+      console.info(`${new Date().toISOString()} - ${message}`, context);
     }
   }
   debug(message: string, context?: Record<string, unknown>): void {
     if (this.name) {
-      console.debug(`[${this.name}] ${message}`, context);
+      console.debug(`${new Date().toISOString()} - [${this.name}] ${message}`, context);
     } else {
-      console.debug(message, context);
+      console.debug(`${new Date().toISOString()} - ${message}`, context);
     }
   }
   warn(message: string, context?: Record<string, unknown>): void {
     if (this.name) {
-      console.warn(`[${this.name}] ${message}`, context);
+      console.warn(`${new Date().toISOString()} - [${this.name}] ${message}`, context);
     } else {
-      console.warn(message, context);
+      console.warn(`${new Date().toISOString()} - ${message}`, context);
     }
   }
   error(message: string, context?: Record<string, unknown>): void {
     if (this.name) {
-      console.error(`[${this.name}] ${message}`, context);
+      console.error(`${new Date().toISOString()} - [${this.name}] ${message}`, context);
     } else {
-      console.error(message, context);
+      console.error(`${new Date().toISOString()} - ${message}`, context);
     }
   }
 }
