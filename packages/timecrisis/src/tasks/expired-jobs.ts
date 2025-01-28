@@ -1,6 +1,8 @@
 import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
-import { LeaderElection } from '../leader/index.js';
+import { JobStateMachine } from '../state-machine/index.js';
+import { LeaderElection } from '../concurrency/leader-election.js';
+import { getJobId, isJobLock } from '../concurrency/job-lock.js';
 
 interface ExpiredJobsTaskConfig {
   /**
@@ -12,6 +14,11 @@ interface ExpiredJobsTaskConfig {
    * Storage backend.
    */
   storage: JobStorage;
+
+  /**
+   * State machine.
+   */
+  stateMachine: JobStateMachine;
 
   /**
    * Leader election mechanism to determine the current leader.
@@ -87,115 +94,62 @@ export class ExpiredJobsTask {
       return;
     }
 
-    try {
-      // Check running jobs
-      const jobs = await this.cfg.storage.listJobs({ status: ['pending', 'running'] });
+    const now = new Date();
 
-      this.logger.debug('Checking for expired jobs', {
-        runningJobs: jobs.length,
+    try {
+      const locks = await this.cfg.storage.listLocks();
+
+      this.logger.debug('Checking for expired locks', {
+        locks: locks.length,
       });
 
-      const now = new Date();
-      for (const job of jobs) {
+      // Look for jobs that are locked beyond their TTL.
+      for (const lock of locks) {
         try {
-          if (job.lockedAt) {
-            // Check lock expiration
-            const lockAge = now.getTime() - job.lockedAt.getTime();
-            if (lockAge > this.cfg.jobLockTTL) {
-              this.logger.warn('Job lock expired', {
-                jobId: job.id,
-                type: job.type,
-                lockAge,
-                lockLifetime: this.cfg.jobLockTTL,
-              });
-
-              // Get the current job run
-              const runs = await this.cfg.storage.listJobRuns(job.id);
-              const currentRun = runs.find((r) => r.status === 'running');
-
-              // Update the job run if it exists
-              if (currentRun) {
-                await this.cfg.storage.updateJobRun(currentRun.id, {
-                  status: 'failed',
-                  error: 'Job lock expired',
-                  finishedAt: now,
-                });
-
-                this.logger.debug('Setting job run to failed due to lock expiration', {
-                  jobId: job.id,
-                  runId: currentRun.id,
-                  status: 'failed',
-                });
+          if (lock.expiresAt.getTime() < now.getTime()) {
+            if (isJobLock(lock.lockId)) {
+              // Fail the job.
+              const job = await this.cfg.storage.getJob(getJobId(lock.lockId)!);
+              if (job) {
+                await this.cfg.stateMachine.fail(
+                  job,
+                  undefined,
+                  true,
+                  `Job lock expired (expiresAt=${lock.expiresAt.toISOString()})`
+                );
               }
 
-              // Check if we should retry.
-              if (job.attempts < job.maxRetries) {
-                // Reset the job to pending for retry.
-                await this.cfg.storage.updateJob(job.id, {
-                  status: 'pending',
-                  failReason: 'Job lock expired',
-                  failCount: job.failCount + 1,
-                  lockedAt: null,
-                });
-
-                this.logger.info('Job reset for retry after lock expiration', {
-                  jobId: job.id,
-                  type: job.type,
-                  attempt: job.attempts + 1,
-                  maxRetries: job.maxRetries,
-                });
-              } else {
-                // Mark as failed if we've exceeded retries.
-                await this.cfg.storage.updateJob(job.id, {
-                  status: 'failed',
-                  failReason: 'Job lock expired',
-                  failCount: job.failCount + 1,
-                  lockedAt: null,
-                });
-
-                this.logger.warn('Job failed permanently due to lock expiration', {
-                  jobId: job.id,
-                  type: job.type,
-                  attempts: job.attempts,
-                  maxRetries: job.maxRetries,
-                });
-              }
+              // Delete the lock.
+              await this.cfg.storage.releaseLock(lock.lockId, lock.worker);
             }
           }
+        } catch (err) {
+          this.logger.error('Error processing locked job', {
+            jobId: getJobId(lock.lockId),
+            error: err instanceof Error ? err.message : String(err),
+            error_stack: err instanceof Error ? err.stack : undefined,
+          });
+        }
+      }
 
+      const jobs = await this.cfg.storage.listJobs({ status: ['pending'] });
+
+      this.logger.debug('Checking for expired jobs', {
+        jobs: jobs.length,
+      });
+
+      // Check jobs which might be expired.
+      for (const job of jobs) {
+        try {
           // Check job expiration - no retry for expired jobs.
           if (job.expiresAt && job.expiresAt < now) {
-            this.logger.warn('Job expired', {
-              jobId: job.id,
-              type: job.type,
-              expiresAt: job.expiresAt,
-            });
-
-            // Get the current job run
-            const runs = await this.cfg.storage.listJobRuns(job.id);
-            const currentRun = runs.find((r) => r.status === 'running');
-
-            // Update the job run if it exists.
-            if (currentRun) {
-              await this.cfg.storage.updateJobRun(currentRun.id, {
-                status: 'failed',
-                error: 'Job expired',
-                finishedAt: now,
-              });
-              this.logger.debug('Updated job run status to failed due to job expiration', {
-                jobId: job.id,
-                runId: currentRun.id,
-                status: 'failed',
-              });
-            }
-
-            // Mark as failed immediately without retry.
-            await this.cfg.storage.updateJob(job.id, {
-              status: 'failed',
-              failReason: 'Job expired',
-              failCount: job.failCount + 1,
-              lockedAt: null,
-            });
+            // Fail the job.
+            await this.cfg.stateMachine.fail(
+              job,
+              undefined,
+              false,
+              `Job expired (expiresAt=${job.expiresAt.toISOString()})`
+            );
           }
         } catch (err) {
           this.logger.error('Error processing expired job', {

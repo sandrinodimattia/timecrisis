@@ -1,6 +1,8 @@
 import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
-import { LeaderElection } from '../leader/index.js';
+import { LeaderElection } from '../concurrency/leader-election.js';
+import { formatLockName, getJobId, isJobLock } from '../concurrency/job-lock.js';
+import { JobState, JobStateMachine } from '../state-machine/index.js';
 
 interface DeadWorkersTaskConfig {
   /**
@@ -12,6 +14,11 @@ interface DeadWorkersTaskConfig {
    * Storage backend.
    */
   storage: JobStorage;
+
+  /**
+   * State machine.
+   */
+  stateMachine: JobStateMachine;
 
   /**
    * Leader election mechanism to determine the current leader.
@@ -118,65 +125,29 @@ export class DeadWorkersTask {
       for (const worker of inactiveWorkers) {
         try {
           // Find all jobs locked by this worker
-          const lockedJobs = await this.cfg.storage.listJobs({
-            lockedBy: worker.name,
-          });
+          const locks = await this.cfg.storage.listLocks({ worker: worker.name });
 
           // Update locked jobs to be unlocked
-          for (const job of lockedJobs) {
-            // Get the current job run
-            const runs = await this.cfg.storage.listJobRuns(job.id);
-            const currentRun = runs.find((r) => r.status === 'running');
+          for (const jobId of locks
+            .filter((l) => isJobLock(l.lockId))
+            .map((l) => getJobId(l.lockId) as string)) {
+            const job = await this.cfg.storage.getJob(jobId);
+            if (job && job.status === JobState.Running) {
+              // Get the current job run
+              const runs = await this.cfg.storage.listJobRuns(job.id);
+              const currentRun = runs.find((r) => r.status === JobState.Running);
 
-            // Update the job run if it exists
-            if (currentRun) {
-              await this.cfg.storage.updateJobRun(currentRun.id, {
-                status: 'failed',
-                error: 'Worker which was running the task is no longer active',
-                finishedAt: now,
-              });
-
-              this.logger.debug('Setting job run to failed due to dead worker', {
-                jobId: job.id,
-                runId: currentRun.id,
-                status: 'failed',
-              });
+              // Fail.
+              await this.cfg.stateMachine.fail(
+                job,
+                currentRun?.id,
+                true,
+                'Worker which was running the task is no longer active'
+              );
             }
 
-            // Check if we should retry
-            if (job.attempts < job.maxRetries) {
-              // Reset the job to pending for retry
-              await this.cfg.storage.updateJob(job.id, {
-                status: 'pending',
-                failReason: 'Worker which was running the task is no longer active',
-                failCount: job.failCount + 1,
-                lockedAt: null,
-                lockedBy: null,
-              });
-
-              this.logger.info('Job reset for retry after worker became inactive', {
-                jobId: job.id,
-                type: job.type,
-                attempt: job.attempts + 1,
-                maxRetries: job.maxRetries,
-              });
-            } else {
-              // Mark as failed if we've exceeded retries
-              await this.cfg.storage.updateJob(job.id, {
-                status: 'failed',
-                failReason: 'Worker which was running the task is no longer active',
-                failCount: job.failCount + 1,
-                lockedAt: null,
-                lockedBy: null,
-              });
-
-              this.logger.warn('Job failed permanently due to worker becoming inactive', {
-                jobId: job.id,
-                type: job.type,
-                attempts: job.attempts,
-                maxRetries: job.maxRetries,
-              });
-            }
+            // And finally release the lock.
+            await this.cfg.storage.releaseLock(formatLockName(jobId), worker.name);
           }
 
           // Remove concurrency locks
