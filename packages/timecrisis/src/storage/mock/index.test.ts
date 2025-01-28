@@ -182,7 +182,7 @@ describe('MockJobStorage', () => {
   describe('Metrics', () => {
     it('should calculate correct metrics', async () => {
       // Create some jobs with different statuses and durations
-      await storage.createJob({
+      const job1Id = await storage.createJob({
         type: 'job1',
         status: 'completed',
         priority: 0,
@@ -191,7 +191,14 @@ describe('MockJobStorage', () => {
         failCount: 0,
         data: {},
       });
-      await storage.createJob({
+      await storage.createJobRun({
+        attempt: 1,
+        jobId: job1Id,
+        status: 'completed',
+        startedAt: new Date(),
+        executionDuration: 100,
+      });
+      const job2Id = await storage.createJob({
         type: 'job1',
         status: 'failed',
         priority: 0,
@@ -200,7 +207,14 @@ describe('MockJobStorage', () => {
         failCount: 1,
         data: {},
       });
-      await storage.createJob({
+      await storage.createJobRun({
+        attempt: 1,
+        jobId: job2Id,
+        status: 'failed',
+        startedAt: new Date(),
+        executionDuration: 10,
+      });
+      const job3Id = await storage.createJob({
         type: 'job2',
         status: 'completed',
         priority: 0,
@@ -208,6 +222,13 @@ describe('MockJobStorage', () => {
         backoffStrategy: 'exponential',
         failCount: 0,
         data: {},
+      });
+      await storage.createJobRun({
+        attempt: 1,
+        jobId: job3Id,
+        status: 'completed',
+        startedAt: new Date(),
+        executionDuration: 200,
       });
 
       const metrics = await storage.getMetrics();

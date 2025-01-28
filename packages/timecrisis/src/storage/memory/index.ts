@@ -856,7 +856,8 @@ export class InMemoryJobStorage implements JobStorage {
     const jobsByType = new Map<string, JobRun[]>();
     jobs.forEach((job) => {
       const typeJobs = jobsByType.get(job.type) || [];
-      for (const jobRun of this.jobRuns.get(job.id)!) {
+      const jobRuns = this.jobRuns.get(job.id) || [];
+      for (const jobRun of jobRuns) {
         typeJobs.push(jobRun);
       }
       jobsByType.set(job.type, typeJobs);

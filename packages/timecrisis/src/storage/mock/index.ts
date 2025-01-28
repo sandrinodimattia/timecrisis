@@ -468,12 +468,14 @@ export class MockJobStorage implements JobStorage {
     const jobs = Array.from(this.jobs.values());
     const averageDurationByType: Record<string, number> = {};
     const failureRateByType: Record<string, number> = {};
-
     // Calculate metrics by job type
     const jobsByType = new Map<string, JobRun[]>();
     jobs.forEach((job) => {
       const typeJobs = jobsByType.get(job.type) || [];
       for (const kv of this.jobRuns.entries()) {
+        if (kv[1].jobId !== job.id) {
+          continue;
+        }
         typeJobs.push(kv[1]);
       }
       jobsByType.set(job.type, typeJobs);
