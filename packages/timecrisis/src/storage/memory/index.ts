@@ -76,9 +76,9 @@ export class InMemoryJobStorage implements JobStorage {
 
   /**
    * Map of active locks used for job processing coordination
-   * Each lock contains the owner's identifier and expiration time
+   * Each lock contains the worker's identifier and expiration time
    */
-  private locks: Map<string, { owner: string; expiresAt: Date }> = new Map();
+  private locks: Map<string, { worker: string; expiresAt: Date }> = new Map();
 
   /**
    * Map of workers
@@ -277,8 +277,8 @@ export class InMemoryJobStorage implements JobStorage {
    * @param id - Unique identifier of the job to retrieve
    * @returns Job data or null if not found
    */
-  async getJob(id: string): Promise<Job | null> {
-    return this.jobs.get(id) || null;
+  async getJob(id: string): Promise<Job | undefined> {
+    return this.jobs.get(id);
   }
 
   /**
@@ -301,11 +301,6 @@ export class InMemoryJobStorage implements JobStorage {
       ...validUpdates,
       updatedAt: new Date(),
     });
-
-    // If we're unlocking the job, also clear the lockedBy
-    if (validUpdates.lockedAt === null) {
-      updatedJob.lockedBy = null;
-    }
 
     this.jobs.set(id, updatedJob);
   }
@@ -334,6 +329,21 @@ export class InMemoryJobStorage implements JobStorage {
     runs.push(newJobRun);
     this.jobRuns.set(jobRun.jobId, runs);
     return id;
+  }
+
+  /**
+   * Retrieve a job run by its unique identifier
+   * @param jobId - Unique identifier of the job to retrieve
+   * @param jobRunId - Unique identifier of the job run to retrieve
+   * @returns Job run data or null if not found
+   */
+  async getJobRun(jobId: string, jobRunId: string): Promise<JobRun | undefined> {
+    const runs = this.jobRuns.get(jobId);
+    if (!runs) {
+      return undefined;
+    }
+
+    return runs.find((run) => run.id === jobRunId);
   }
 
   /**
@@ -468,9 +478,7 @@ export class InMemoryJobStorage implements JobStorage {
   async listJobs(filter?: {
     status?: string[];
     type?: string;
-    referenceId?: string;
-    lockedBefore?: Date;
-    lockedBy?: string;
+    entityId?: string;
     runAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]> {
@@ -484,19 +492,8 @@ export class InMemoryJobStorage implements JobStorage {
       result = result.filter((job) => filter.status!.includes(job.status));
     }
 
-    if (filter?.referenceId) {
-      result = result.filter((job) => job.referenceId === filter.referenceId);
-    }
-
-    if (filter?.lockedBy) {
-      result = result.filter((job) => job.lockedBy === filter.lockedBy);
-    }
-
-    if (filter?.lockedBefore) {
-      result = result.filter((job) => {
-        const lock = this.locks.get(job.id);
-        return !lock || lock.expiresAt <= filter.lockedBefore!;
-      });
+    if (filter?.entityId) {
+      result = result.filter((job) => job.entityId === filter.entityId);
     }
 
     if (filter?.runAtBefore) {
@@ -578,17 +575,17 @@ export class InMemoryJobStorage implements JobStorage {
   /**
    * Acquire a lock.
    * @param lockId - Unique identifier of the lock
-   * @param owner - Identifier of the lock owner
+   * @param worker - Identifier of the lock worker
    * @param ttl - Time to live for the lock (in milliseconds)
    * @returns True if the lock was acquired, false otherwise
    */
-  async acquireLock(lockId: string, owner: string, ttl: number): Promise<boolean> {
+  async acquireLock(lockId: string, worker: string, ttl: number): Promise<boolean> {
     return this.transaction(async () => {
       const now = new Date();
 
       const existingLock = this.locks.get(lockId);
       if (existingLock) {
-        // If lock exists and hasn't expired, return false regardless of owner.
+        // If lock exists and hasn't expired, return false regardless of worker.
         if (existingLock.expiresAt > now) {
           return false;
         }
@@ -596,7 +593,7 @@ export class InMemoryJobStorage implements JobStorage {
 
       // Lock is either expired or doesn't exist, we can acquire it.
       this.locks.set(lockId, {
-        owner,
+        worker,
         expiresAt: new Date(now.getTime() + ttl),
       });
       return true;
@@ -606,17 +603,17 @@ export class InMemoryJobStorage implements JobStorage {
   /**
    * Renew an existing lock .
    * @param lockId - Unique identifier of the lock
-   * @param owner - Identifier of the lock owner
+   * @param worker - Identifier of the lock worker
    * @param ttl - Time to live for the lock (in milliseconds)
    * @returns True if the lock was renewed, false otherwise
    */
-  async renewLock(lockId: string, owner: string, ttl: number): Promise<boolean> {
+  async renewLock(lockId: string, worker: string, ttl: number): Promise<boolean> {
     return this.transaction(async () => {
       const now = new Date();
       const existingLock = this.locks.get(lockId);
 
-      // Can only extend if lock exists, hasn't expired, and is owned by the same owner
-      if (existingLock && existingLock.owner === owner && existingLock.expiresAt > now) {
+      // Can only extend if lock exists, hasn't expired, and is owned by the same worker
+      if (existingLock && existingLock.worker === worker && existingLock.expiresAt > now) {
         existingLock.expiresAt = new Date(now.getTime() + ttl);
         return true;
       }
@@ -628,12 +625,12 @@ export class InMemoryJobStorage implements JobStorage {
   /**
    * Release a lock.
    * @param lockId - Unique identifier of the lock
-   * @param owner - Identifier of the lock owner
+   * @param worker - Identifier of the lock worker
    * @returns True if the lock was released, false otherwise
    */
-  async releaseLock(lockId: string, owner: string): Promise<boolean> {
+  async releaseLock(lockId: string, worker: string): Promise<boolean> {
     const lock = this.locks.get(lockId);
-    if (!lock || lock.owner !== owner) {
+    if (!lock || lock.worker !== worker) {
       return false;
     }
 
@@ -642,15 +639,43 @@ export class InMemoryJobStorage implements JobStorage {
   }
 
   /**
+   * List all locks owned by a specific worker.
+   * @returns An array of objects with lock details, each containing lockId, worker, and expiresAt
+   */
+  async listLocks(filters?: {
+    worker?: string | undefined;
+  }): Promise<{ lockId: string; worker: string; expiresAt: Date }[]> {
+    const locks = [];
+    for (const key of this.locks.keys()) {
+      const lock = this.locks.get(key);
+      if (!filters || !filters.worker) {
+        locks.push({
+          lockId: key,
+          worker: lock!.worker,
+          expiresAt: lock!.expiresAt,
+        });
+        continue;
+      } else if (filters.worker !== lock!.worker) {
+        locks.push({
+          lockId: key,
+          worker: lock!.worker,
+          expiresAt: lock!.expiresAt,
+        });
+      }
+    }
+    return locks;
+  }
+
+  /**
    * Acquire a slot for a specific job type and worker
    * @param jobType - The type of the job
-   * @param workerId - The ID of the worker requesting the slot
+   * @param worker - The ID of the worker requesting the slot
    * @param maxConcurrent - Maximum allowed concurrent jobs for this type
    * @returns True if the slot was acquired, false otherwise
    */
   async acquireJobTypeSlot(
     jobType: string,
-    workerId: string,
+    worker: string,
     maxConcurrent: number
   ): Promise<boolean> {
     return this.transaction(async () => {
@@ -672,8 +697,8 @@ export class InMemoryJobStorage implements JobStorage {
       }
 
       // Increment the slot count for this worker
-      const currentCount = workerMap.get(workerId) || 0;
-      workerMap.set(workerId, currentCount + 1);
+      const currentCount = workerMap.get(worker) || 0;
+      workerMap.set(worker, currentCount + 1);
       return true;
     });
   }
@@ -681,23 +706,23 @@ export class InMemoryJobStorage implements JobStorage {
   /**
    * Release a slot for a specific job type and worker
    * @param jobType - The type of the job
-   * @param workerId - The ID of the worker releasing the slot
+   * @param workerName - The ID of the worker releasing the slot
    */
-  async releaseJobTypeSlot(jobType: string, workerId: string): Promise<void> {
+  async releaseJobTypeSlot(jobType: string, workerName: string): Promise<void> {
     return this.transaction(async () => {
       const workerMap = this.runningJobCounts.get(jobType);
       if (!workerMap) {
         return;
       }
 
-      const currentCount = workerMap.get(workerId) || 0;
+      const currentCount = workerMap.get(workerName) || 0;
       if (currentCount > 0) {
-        workerMap.set(workerId, currentCount - 1);
+        workerMap.set(workerName, currentCount - 1);
       }
 
       // Clean up empty maps
-      if (workerMap.get(workerId) === 0) {
-        workerMap.delete(workerId);
+      if (workerMap.get(workerName) === 0) {
+        workerMap.delete(workerName);
       }
       if (workerMap.size === 0) {
         this.runningJobCounts.delete(jobType);
@@ -707,13 +732,13 @@ export class InMemoryJobStorage implements JobStorage {
 
   /**
    * Release all slots held by a specific worker
-   * @param workerId - The ID of the worker to release all slots for
+   * @param workerName - The ID of the worker to release all slots for
    */
-  async releaseAllJobTypeSlots(workerId: string): Promise<void> {
+  async releaseAllJobTypeSlots(workerName: string): Promise<void> {
     return this.transaction(async () => {
       for (const [jobType, workerMap] of this.runningJobCounts.entries()) {
-        if (workerMap.has(workerId)) {
-          workerMap.delete(workerId);
+        if (workerMap.has(workerName)) {
+          workerMap.delete(workerName);
 
           // Clean up empty maps
           if (workerMap.size === 0) {
@@ -828,18 +853,18 @@ export class InMemoryJobStorage implements JobStorage {
     const averageDurationByType: Record<string, number> = {};
 
     // Calculate metrics by job type
-    const jobsByType = new Map<string, Job[]>();
+    const jobsByType = new Map<string, JobRun[]>();
     jobs.forEach((job) => {
       const typeJobs = jobsByType.get(job.type) || [];
-      typeJobs.push(job);
+      for (const jobRun of this.jobRuns.get(job.id)!) {
+        typeJobs.push(jobRun);
+      }
       jobsByType.set(job.type, typeJobs);
     });
 
     jobsByType.forEach((typeJobs, type) => {
       // Calculate average duration
-      const completedJobs = typeJobs.filter(
-        (j) => j.status === 'completed' && j.executionDuration !== undefined
-      );
+      const completedJobs = typeJobs.filter((j) => j.status === 'completed');
       if (completedJobs.length > 0) {
         const totalDuration = completedJobs.reduce((sum, j) => sum + (j.executionDuration || 0), 0);
         averageDurationByType[type] = totalDuration / completedJobs.length;

@@ -25,11 +25,9 @@ describe('InMemoryJobStorage', () => {
       const jobData: Omit<Job, 'id' | 'createdAt' | 'updatedAt'> = {
         type: 'test-job',
         status: 'pending',
-        referenceId: 'ref-123',
+        entityId: 'ref-123',
         data: {},
-        progress: 0,
         priority: 1,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -42,7 +40,7 @@ describe('InMemoryJobStorage', () => {
       expect(job).toBeDefined();
       expect(job?.type).toBe(jobData.type);
       expect(job?.status).toBe(jobData.status);
-      expect(job?.referenceId).toBe(jobData.referenceId);
+      expect(job?.entityId).toBe(jobData.entityId);
       expect(job?.createdAt).toBeInstanceOf(Date);
       expect(job?.updatedAt).toBeInstanceOf(Date);
     });
@@ -58,7 +56,6 @@ describe('InMemoryJobStorage', () => {
         type: 'job1',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -68,7 +65,6 @@ describe('InMemoryJobStorage', () => {
         type: 'job2',
         status: 'completed',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -78,7 +74,6 @@ describe('InMemoryJobStorage', () => {
         type: 'job3',
         status: 'running',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -109,7 +104,6 @@ describe('InMemoryJobStorage', () => {
         type: 'future-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -122,7 +116,6 @@ describe('InMemoryJobStorage', () => {
         type: 'past-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -135,7 +128,6 @@ describe('InMemoryJobStorage', () => {
         type: 'immediate-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -154,75 +146,6 @@ describe('InMemoryJobStorage', () => {
       const allJobs = await storage.listJobs({ runAtBefore: futureTime });
       expect(allJobs).toHaveLength(3);
     });
-
-    describe('updateJob', () => {
-      test('should clear lockedBy when unlocking a job', async () => {
-        const jobId = await storage.createJob({
-          type: 'test',
-          data: {},
-          runAt: new Date(),
-          maxRetries: 3,
-          attempts: 0,
-          status: 'pending',
-        });
-
-        // First lock the job
-        await storage.updateJob(jobId, {
-          lockedAt: new Date(),
-          lockedBy: 'worker-1',
-        });
-
-        // Now unlock it
-        await storage.updateJob(jobId, {
-          lockedAt: null,
-        });
-
-        const job = await storage.getJob(jobId);
-        expect(job?.lockedBy).toBeNull();
-      });
-    });
-
-    describe('listJobs', () => {
-      test('should filter jobs by lockedBy', async () => {
-        const jobId1 = await storage.createJob({
-          type: 'test',
-          data: {},
-          runAt: new Date(),
-          maxRetries: 3,
-          attempts: 0,
-          status: 'pending',
-        });
-
-        const jobId2 = await storage.createJob({
-          type: 'test',
-          data: {},
-          runAt: new Date(),
-          maxRetries: 3,
-          attempts: 0,
-          status: 'pending',
-        });
-
-        // Lock job1 with worker1
-        await storage.updateJob(jobId1, {
-          lockedAt: new Date(),
-          lockedBy: 'worker-1',
-        });
-
-        // Lock job2 with worker2
-        await storage.updateJob(jobId2, {
-          lockedAt: new Date(),
-          lockedBy: 'worker-2',
-        });
-
-        const worker1Jobs = await storage.listJobs({ lockedBy: 'worker-1' });
-        expect(worker1Jobs).toHaveLength(1);
-        expect(worker1Jobs[0].id).toBe(jobId1);
-
-        const worker2Jobs = await storage.listJobs({ lockedBy: 'worker-2' });
-        expect(worker2Jobs).toHaveLength(1);
-        expect(worker2Jobs[0].id).toBe(jobId2);
-      });
-    });
   });
 
   describe('Metrics', () => {
@@ -231,9 +154,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'job1',
         status: 'completed',
-        executionDuration: 100,
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -243,7 +164,6 @@ describe('InMemoryJobStorage', () => {
         type: 'job1',
         status: 'failed',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 1,
@@ -252,9 +172,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'job2',
         status: 'completed',
-        executionDuration: 200,
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -286,7 +204,6 @@ describe('InMemoryJobStorage', () => {
         type: 'test-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -411,13 +328,13 @@ describe('InMemoryJobStorage', () => {
       await storage.createDeadLetterJob({
         jobId: 'job-1',
         jobType: 'job-1',
-        reason: 'test failure',
+        failReason: 'test failure',
         failedAt: new Date(),
       });
 
       const deadLetterJobs = await storage.listDeadLetterJobs();
       expect(deadLetterJobs).toHaveLength(1);
-      expect(deadLetterJobs[0].reason).toBe('test failure');
+      expect(deadLetterJobs[0].failReason).toBe('test failure');
     });
   });
 
@@ -465,7 +382,7 @@ describe('InMemoryJobStorage', () => {
       });
 
       const job = await storage.getJob(jobId);
-      expect(job).toBeNull();
+      expect(job).toBeUndefined();
     });
   });
 
@@ -499,10 +416,10 @@ describe('InMemoryJobStorage', () => {
         name: 'test-worker',
       };
 
-      const workerId = await storage.registerWorker(workerData);
-      expect(workerId).toBeDefined();
+      const workerName = await storage.registerWorker(workerData);
+      expect(workerName).toBeDefined();
 
-      const worker = await storage.getWorker(workerId);
+      const worker = await storage.getWorker(workerName);
       expect(worker).toMatchObject({
         name: 'test-worker',
         first_seen: now,
@@ -516,12 +433,12 @@ describe('InMemoryJobStorage', () => {
     });
 
     test('should update worker heartbeat', async () => {
-      const workerId = await storage.registerWorker({ name: 'test-worker' });
+      const workerName = await storage.registerWorker({ name: 'test-worker' });
       const newHeartbeat = new Date('2025-01-23T01:00:00.000Z');
 
-      await storage.updateWorkerHeartbeat(workerId, { last_heartbeat: newHeartbeat });
+      await storage.updateWorkerHeartbeat(workerName, { last_heartbeat: newHeartbeat });
 
-      const worker = await storage.getWorker(workerId);
+      const worker = await storage.getWorker(workerName);
       expect(worker?.last_heartbeat).toEqual(newHeartbeat);
     });
 
@@ -573,42 +490,42 @@ describe('InMemoryJobStorage', () => {
     });
 
     test('should validate worker heartbeat data', async () => {
-      const workerId = await storage.registerWorker({ name: 'test-worker' });
+      const workerName = await storage.registerWorker({ name: 'test-worker' });
 
       // @ts-expect-error Testing invalid data
-      await expect(storage.updateWorkerHeartbeat(workerId, {})).rejects.toThrow();
+      await expect(storage.updateWorkerHeartbeat(workerName, {})).rejects.toThrow();
       await expect(
         // @ts-expect-error Testing invalid data
-        storage.updateWorkerHeartbeat(workerId, { last_heartbeat: 'invalid' })
+        storage.updateWorkerHeartbeat(workerName, { last_heartbeat: 'invalid' })
       ).rejects.toThrow();
     });
 
     describe('workers', () => {
       test('should register and retrieve a worker', async () => {
-        const workerId = await storage.registerWorker({
+        const workerName = await storage.registerWorker({
           name: 'test-worker',
         });
 
-        const worker = await storage.getWorker(workerId);
+        const worker = await storage.getWorker(workerName);
         expect(worker).toBeDefined();
         expect(worker?.name).toBe('test-worker');
       });
 
       test('should delete a worker', async () => {
         // Register a worker
-        const workerId = await storage.registerWorker({
+        const workerName = await storage.registerWorker({
           name: 'test-worker',
         });
 
         // Verify it exists
-        const worker = await storage.getWorker(workerId);
+        const worker = await storage.getWorker(workerName);
         expect(worker).toBeDefined();
 
         // Delete the worker
-        await storage.deleteWorker(workerId);
+        await storage.deleteWorker(workerName);
 
         // Verify it's gone
-        await expect(storage.getWorker(workerId)).resolves.toBeNull();
+        await expect(storage.getWorker(workerName)).resolves.toBeNull();
       });
 
       test('should throw WorkerNotFoundError when deleting non-existent worker', async () => {
@@ -616,12 +533,12 @@ describe('InMemoryJobStorage', () => {
       });
 
       test('should update worker heartbeat', async () => {
-        const workerId = await storage.registerWorker({ name: 'test-worker' });
+        const workerName = await storage.registerWorker({ name: 'test-worker' });
         const newHeartbeat = new Date('2025-01-23T01:00:00.000Z');
 
-        await storage.updateWorkerHeartbeat(workerId, { last_heartbeat: newHeartbeat });
+        await storage.updateWorkerHeartbeat(workerName, { last_heartbeat: newHeartbeat });
 
-        const worker = await storage.getWorker(workerId);
+        const worker = await storage.getWorker(workerName);
         expect(worker?.last_heartbeat).toEqual(newHeartbeat);
       });
     });
@@ -630,23 +547,23 @@ describe('InMemoryJobStorage', () => {
   describe('concurrency slots', () => {
     test('should acquire and release job type slots correctly', async () => {
       const jobType = 'test-job';
-      const workerId = 'worker-1';
+      const workerName = 'worker-1';
       const maxConcurrent = 2;
 
       // Should be able to acquire slots up to maxConcurrent
-      expect(await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent)).toBe(true);
-      expect(await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent)).toBe(true);
-      expect(await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent)).toBe(false);
+      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
+      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
+      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(false);
 
       // Running count should match acquired slots
       expect(await storage.getRunningCount(jobType)).toBe(2);
 
       // Release one slot
-      await storage.releaseJobTypeSlot(jobType, workerId);
+      await storage.releaseJobTypeSlot(jobType, workerName);
       expect(await storage.getRunningCount(jobType)).toBe(1);
 
       // Should be able to acquire another slot
-      expect(await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent)).toBe(true);
+      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
     });
 
     test('should handle multiple workers correctly', async () => {

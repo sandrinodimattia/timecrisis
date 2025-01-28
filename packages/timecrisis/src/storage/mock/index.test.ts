@@ -45,16 +45,13 @@ describe('MockJobStorage', () => {
       expect(job).toBeDefined();
       expect(job?.priority).toBe(1);
       expect(job?.status).toBe('pending');
-      expect(job?.attempts).toBe(0);
       expect(job?.maxRetries).toBe(0);
       expect(job?.backoffStrategy).toBe('exponential');
       expect(job?.failCount).toBe(0);
       expect(job?.expiresAt).toBeUndefined();
-      expect(job?.lockedAt).toBeUndefined();
       expect(job?.startedAt).toBeUndefined();
       expect(job?.finishedAt).toBeUndefined();
       expect(job?.failReason).toBeUndefined();
-      expect(job?.executionDuration).toBeUndefined();
     });
 
     it('should list jobs with filtering', async () => {
@@ -62,7 +59,6 @@ describe('MockJobStorage', () => {
         type: 'job1',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -72,7 +68,6 @@ describe('MockJobStorage', () => {
         type: 'job2',
         status: 'completed',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -82,7 +77,6 @@ describe('MockJobStorage', () => {
         type: 'job3',
         status: 'running',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -112,7 +106,6 @@ describe('MockJobStorage', () => {
         type: 'future-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -125,7 +118,6 @@ describe('MockJobStorage', () => {
         type: 'past-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -138,7 +130,6 @@ describe('MockJobStorage', () => {
         type: 'immediate-job',
         status: 'pending',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -166,83 +157,16 @@ describe('MockJobStorage', () => {
 
       await storage.updateJob(jobId, {
         status: 'completed',
-        executionDuration: 1000,
         finishedAt: new Date(),
       });
 
       const job = await storage.getJob(jobId);
       expect(job?.status).toBe('completed');
-      expect(job?.executionDuration).toBe(1000);
       expect(job?.finishedAt).toBeInstanceOf(Date);
     });
 
     it('should throw error when updating non-existent job', async () => {
       await expect(storage.updateJob('non-existent', { status: 'completed' })).rejects.toThrow();
-    });
-
-    it('should clear lockedBy when unlocking a job', async () => {
-      const jobId = await storage.createJob({
-        type: 'test',
-        data: {},
-        runAt: new Date(),
-        maxRetries: 3,
-        attempts: 0,
-        status: 'pending',
-      });
-
-      // First lock the job
-      await storage.updateJob(jobId, {
-        lockedAt: new Date(),
-        lockedBy: 'worker-1',
-      });
-
-      // Now unlock it
-      await storage.updateJob(jobId, {
-        lockedAt: null,
-      });
-
-      const job = await storage.getJob(jobId);
-      expect(job?.lockedBy).toBeNull();
-    });
-
-    it('should filter jobs by lockedBy', async () => {
-      const jobId1 = await storage.createJob({
-        type: 'test',
-        data: {},
-        runAt: new Date(),
-        maxRetries: 3,
-        attempts: 0,
-        status: 'pending',
-      });
-
-      const jobId2 = await storage.createJob({
-        type: 'test',
-        data: {},
-        runAt: new Date(),
-        maxRetries: 3,
-        attempts: 0,
-        status: 'pending',
-      });
-
-      // Lock job1 with worker1
-      await storage.updateJob(jobId1, {
-        lockedAt: new Date(),
-        lockedBy: 'worker-1',
-      });
-
-      // Lock job2 with worker2
-      await storage.updateJob(jobId2, {
-        lockedAt: new Date(),
-        lockedBy: 'worker-2',
-      });
-
-      const worker1Jobs = await storage.listJobs({ lockedBy: 'worker-1' });
-      expect(worker1Jobs).toHaveLength(1);
-      expect(worker1Jobs[0].id).toBe(jobId1);
-
-      const worker2Jobs = await storage.listJobs({ lockedBy: 'worker-2' });
-      expect(worker2Jobs).toHaveLength(1);
-      expect(worker2Jobs[0].id).toBe(jobId2);
     });
 
     it('should cleanup all data', async () => {
@@ -261,9 +185,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'job1',
         status: 'completed',
-        executionDuration: 100,
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -273,7 +195,6 @@ describe('MockJobStorage', () => {
         type: 'job1',
         status: 'failed',
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 1,
@@ -282,9 +203,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'job2',
         status: 'completed',
-        executionDuration: 200,
         priority: 0,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -487,14 +406,14 @@ describe('MockJobStorage', () => {
         jobId,
         jobType: 'test-job',
         failedAt: new Date(),
-        reason: 'Test failure',
+        failReason: 'Test failure',
         data: { foo: 'bar' },
       });
 
       const deadLetterJobs = await storage.listDeadLetterJobs();
       expect(deadLetterJobs).toHaveLength(1);
       expect(deadLetterJobs[0].jobId).toBe(jobId);
-      expect(deadLetterJobs[0].reason).toBe('Test failure');
+      expect(deadLetterJobs[0].failReason).toBe('Test failure');
       expect(deadLetterJobs[0].data).toEqual({ foo: 'bar' });
     });
   });
@@ -502,31 +421,31 @@ describe('MockJobStorage', () => {
   describe('Worker Management', () => {
     describe('workers', () => {
       it('should register a worker', async () => {
-        const workerId = await storage.registerWorker({
+        const workerName = await storage.registerWorker({
           name: 'test-worker',
         });
 
-        expect(workerId).toBeDefined();
-        const worker = await storage.getWorker(workerId);
+        expect(workerName).toBeDefined();
+        const worker = await storage.getWorker(workerName);
         expect(worker).toBeDefined();
         expect(worker?.name).toBe('test-worker');
       });
 
       it('should delete a worker', async () => {
         // Register a worker
-        const workerId = await storage.registerWorker({
+        const workerName = await storage.registerWorker({
           name: 'test-worker',
         });
 
         // Verify it exists
-        const worker = await storage.getWorker(workerId);
+        const worker = await storage.getWorker(workerName);
         expect(worker).toBeDefined();
 
         // Delete the worker
-        await storage.deleteWorker(workerId);
+        await storage.deleteWorker(workerName);
 
         // Verify it's gone
-        await expect(storage.getWorker(workerId)).resolves.toBeNull();
+        await expect(storage.getWorker(workerName)).resolves.toBeNull();
       });
 
       it('should throw WorkerNotFoundError when deleting non-existent worker', async () => {
@@ -534,15 +453,15 @@ describe('MockJobStorage', () => {
       });
 
       it('should update worker heartbeat', async () => {
-        const workerId = await storage.registerWorker({ name: 'test-worker' });
+        const workerName = await storage.registerWorker({ name: 'test-worker' });
         const newHeartbeat = new Date('2025-01-23T01:00:00.000Z');
 
-        await storage.updateWorkerHeartbeat(workerId, { last_heartbeat: newHeartbeat });
-        expect(storage.updateWorkerHeartbeat).toHaveBeenCalledWith(workerId, {
+        await storage.updateWorkerHeartbeat(workerName, { last_heartbeat: newHeartbeat });
+        expect(storage.updateWorkerHeartbeat).toHaveBeenCalledWith(workerName, {
           last_heartbeat: newHeartbeat,
         });
 
-        const worker = await storage.getWorker(workerId);
+        const worker = await storage.getWorker(workerName);
         expect(worker?.last_heartbeat).toEqual(newHeartbeat);
       });
 
@@ -598,13 +517,13 @@ describe('MockJobStorage', () => {
       });
 
       it('should validate worker heartbeat data', async () => {
-        const workerId = await storage.registerWorker({ name: 'test-worker' });
+        const workerName = await storage.registerWorker({ name: 'test-worker' });
 
         // @ts-expect-error Testing invalid data
-        await expect(storage.updateWorkerHeartbeat(workerId, {})).rejects.toThrow();
+        await expect(storage.updateWorkerHeartbeat(workerName, {})).rejects.toThrow();
         await expect(
           // @ts-expect-error Testing invalid data
-          storage.updateWorkerHeartbeat(workerId, { last_heartbeat: 'invalid' })
+          storage.updateWorkerHeartbeat(workerName, { last_heartbeat: 'invalid' })
         ).rejects.toThrow();
       });
     });
@@ -614,24 +533,24 @@ describe('MockJobStorage', () => {
     it('should acquire and release job type slots', async () => {
       const storage = new MockJobStorage();
       const jobType = 'test-job';
-      const workerId = 'worker-1';
+      const workerName = 'worker-1';
       const maxConcurrent = 2;
 
       // Acquire slots
-      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
-      expect(storage.acquireJobTypeSlot).toHaveBeenCalledWith(jobType, workerId, maxConcurrent);
+      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
+      expect(storage.acquireJobTypeSlot).toHaveBeenCalledWith(jobType, workerName, maxConcurrent);
 
       // Release slots
-      await storage.releaseJobTypeSlot(jobType, workerId);
-      expect(storage.releaseJobTypeSlot).toHaveBeenCalledWith(jobType, workerId);
+      await storage.releaseJobTypeSlot(jobType, workerName);
+      expect(storage.releaseJobTypeSlot).toHaveBeenCalledWith(jobType, workerName);
     });
 
     it('should handle release all slots for a worker', async () => {
       const storage = new MockJobStorage();
-      const workerId = 'worker-1';
+      const workerName = 'worker-1';
 
-      await storage.releaseAllJobTypeSlots(workerId);
-      expect(storage.releaseAllJobTypeSlots).toHaveBeenCalledWith(workerId);
+      await storage.releaseAllJobTypeSlots(workerName);
+      expect(storage.releaseAllJobTypeSlots).toHaveBeenCalledWith(workerName);
     });
 
     it('should handle failures correctly', async () => {
@@ -640,21 +559,21 @@ describe('MockJobStorage', () => {
         shouldFailRelease: true,
       });
       const jobType = 'test-job';
-      const workerId = 'worker-1';
+      const workerName = 'worker-1';
       const maxConcurrent = 2;
 
       // Acquire should fail
-      await expect(storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent)).rejects.toThrow(
+      await expect(storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).rejects.toThrow(
         'Failed to acquire slot'
       );
 
       // Release should fail
-      await expect(storage.releaseJobTypeSlot(jobType, workerId)).rejects.toThrow(
+      await expect(storage.releaseJobTypeSlot(jobType, workerName)).rejects.toThrow(
         'Failed to release slot'
       );
 
       // Release all should fail
-      await expect(storage.releaseAllJobTypeSlots(workerId)).rejects.toThrow(
+      await expect(storage.releaseAllJobTypeSlots(workerName)).rejects.toThrow(
         'Failed to release slots'
       );
     });
@@ -662,13 +581,13 @@ describe('MockJobStorage', () => {
     it('should track running counts', async () => {
       const storage = new MockJobStorage();
       const jobType = 'test-job';
-      const workerId = 'worker-1';
+      const workerName = 'worker-1';
       const maxConcurrent = 2;
 
       // Acquire slots
-      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType, workerId, maxConcurrent);
+      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
+      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
+      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
 
       const res = await storage.getRunningCount(jobType);
       expect(res).toBe(2);

@@ -52,7 +52,7 @@ export interface MockStorageOptions {
 }
 
 export class MockJobStorage implements JobStorage {
-  private locks: Map<string, { owner: string; expiresAt: number }> = new Map();
+  private locks: Map<string, { worker: string; expiresAt: number }> = new Map();
   private jobs: Map<string, Job> = new Map();
   private jobRuns: Map<string, JobRun> = new Map();
   private jobLogs: Map<string, JobLogEntry[]> = new Map();
@@ -71,6 +71,7 @@ export class MockJobStorage implements JobStorage {
     this.updateJob = vi.fn(this.updateJob.bind(this));
     this.listJobs = vi.fn(this.listJobs.bind(this));
     this.createJobRun = vi.fn(this.createJobRun.bind(this));
+    this.getJobRun = vi.fn(this.getJobRun.bind(this));
     this.updateJobRun = vi.fn(this.updateJobRun.bind(this));
     this.listJobRuns = vi.fn(this.listJobRuns.bind(this));
     this.createJobLog = vi.fn(this.createJobLog.bind(this));
@@ -102,8 +103,8 @@ export class MockJobStorage implements JobStorage {
   /**
    * Set a lock directly for testing purposes
    */
-  public setLock(lockId: string, owner: string, expiresAt: number): void {
-    this.locks.set(lockId, { owner, expiresAt });
+  public setLock(lockId: string, worker: string, expiresAt: number): void {
+    this.locks.set(lockId, { worker, expiresAt });
   }
 
   /**
@@ -179,8 +180,8 @@ export class MockJobStorage implements JobStorage {
    * @param id - ID of the job to retrieve
    * @returns Promise of the job or null if not found
    */
-  async getJob(id: string): Promise<Job | null> {
-    return this.jobs.get(id) || null;
+  async getJob(id: string): Promise<Job | undefined> {
+    return this.jobs.get(id);
   }
 
   /**
@@ -204,11 +205,6 @@ export class MockJobStorage implements JobStorage {
       updatedAt: new Date(),
     });
 
-    // If we're unlocking the job, also clear the lockedBy
-    if (validUpdates.lockedAt === null) {
-      updatedJob.lockedBy = null;
-    }
-
     this.jobs.set(id, updatedJob);
   }
 
@@ -221,8 +217,6 @@ export class MockJobStorage implements JobStorage {
     status?: string[];
     type?: string;
     referenceId?: string;
-    lockedBefore?: Date;
-    lockedBy?: string;
     runAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]> {
@@ -237,18 +231,7 @@ export class MockJobStorage implements JobStorage {
     }
 
     if (query?.referenceId) {
-      jobs = jobs.filter((job) => job.referenceId === query.referenceId);
-    }
-
-    if (query?.lockedBy) {
-      jobs = jobs.filter((job) => job.lockedBy === query.lockedBy);
-    }
-
-    if (query?.lockedBefore) {
-      jobs = jobs.filter((job) => {
-        const lock = this.locks.get(job.id);
-        return !lock || lock.expiresAt <= query.lockedBefore!.getTime();
-      });
+      jobs = jobs.filter((job) => job.entityId === query.referenceId);
     }
 
     if (query?.runAtBefore) {
@@ -282,6 +265,16 @@ export class MockJobStorage implements JobStorage {
     });
     this.jobRuns.set(id, newJobRun);
     return id;
+  }
+
+  /**
+   * Retrieve a job run by its unique identifier
+   * @param jobId - Unique identifier of the job to retrieve
+   * @param jobRunId - Unique identifier of the job run to retrieve
+   * @returns Job run data or null if not found
+   */
+  async getJobRun(jobId: string, jobRunId: string): Promise<JobRun | undefined> {
+    return this.jobRuns.get(jobRunId);
   }
 
   /**
@@ -346,10 +339,15 @@ export class MockJobStorage implements JobStorage {
   /**
    * List log entries for a specific job
    * @param jobId - ID of the job to list logs for
+   * @param jobRunId - ID of the job run to list logs for
    * @returns Promise of log entries for the specified job
    */
-  async listJobLogs(jobId: string): Promise<JobLogEntry[]> {
-    return this.jobLogs.get(jobId) || [];
+  async listJobLogs(jobId: string, jobRunId?: string): Promise<JobLogEntry[]> {
+    const logs = this.jobLogs.get(jobId) || [];
+    if (jobRunId) {
+      return logs.filter((log) => log.jobRunId === jobRunId);
+    }
+    return logs;
   }
 
   /**
@@ -472,19 +470,18 @@ export class MockJobStorage implements JobStorage {
     const failureRateByType: Record<string, number> = {};
 
     // Calculate metrics by job type
-    const jobsByType = new Map<string, Job[]>();
+    const jobsByType = new Map<string, JobRun[]>();
     jobs.forEach((job) => {
       const typeJobs = jobsByType.get(job.type) || [];
-      typeJobs.push(job);
+      for (const kv of this.jobRuns.entries()) {
+        typeJobs.push(kv[1]);
+      }
       jobsByType.set(job.type, typeJobs);
     });
 
     jobsByType.forEach((typeJobs, type) => {
       // Calculate average duration
-      const completedJobs = typeJobs.filter(
-        (j) => j.status === 'completed' && j.executionDuration !== undefined
-      );
-
+      const completedJobs = typeJobs.filter((j) => j.status === 'completed');
       if (completedJobs.length > 0) {
         const totalDuration = completedJobs.reduce((sum, j) => sum + (j.executionDuration || 0), 0);
         averageDurationByType[type] = totalDuration / completedJobs.length;
@@ -512,12 +509,12 @@ export class MockJobStorage implements JobStorage {
   /**
    * Attempt to acquire a lock with the given parameters
    * @param lockId - ID of the lock to acquire
-   * @param owner - Owner attempting to acquire the lock
+   * @param worker - Owner attempting to acquire the lock
    * @param ttl - Time-to-live for the lock in milliseconds
    * @returns Promise of boolean indicating if lock was acquired
    * @throws Error if shouldFailAcquire is true
    */
-  async acquireLock(lockId: string, owner: string, ttl: number): Promise<boolean> {
+  async acquireLock(lockId: string, worker: string, ttl: number): Promise<boolean> {
     if (this.options.shouldFailAcquire) {
       throw new Error('Failed to acquire lock');
     }
@@ -529,7 +526,7 @@ export class MockJobStorage implements JobStorage {
     }
 
     this.locks.set(lockId, {
-      owner,
+      worker,
       expiresAt: now + ttl,
     });
     return true;
@@ -538,12 +535,12 @@ export class MockJobStorage implements JobStorage {
   /**
    * Attempt to renew a lock with the given parameters
    * @param lockId - ID of the lock to renew
-   * @param owner - Owner attempting to renew the lock
+   * @param worker - Worker attempting to renew the lock
    * @param ttl - New time-to-live for the lock in milliseconds
    * @returns Promise of boolean indicating if lock was renewed
    * @throws Error if shouldFailExtend is true
    */
-  async renewLock(lockId: string, owner: string, ttl: number): Promise<boolean> {
+  async renewLock(lockId: string, worker: string, ttl: number): Promise<boolean> {
     if (this.options.shouldFailExtend) {
       throw new Error('Failed to extend lock');
     }
@@ -551,8 +548,8 @@ export class MockJobStorage implements JobStorage {
     const now = Date.now();
     const existingLock = this.locks.get(lockId);
 
-    // Can only extend if lock exists, hasn't expired, and is owned by the same owner
-    if (existingLock && existingLock.owner === owner && existingLock.expiresAt > now) {
+    // Can only extend if lock exists, hasn't expired, and is owned by the same worker
+    if (existingLock && existingLock.worker === worker && existingLock.expiresAt > now) {
       existingLock.expiresAt = now + ttl;
       return true;
     }
@@ -561,24 +558,54 @@ export class MockJobStorage implements JobStorage {
   }
 
   /**
-   * Release a lock if owned by the specified owner
+   * Release a lock if owned by the specified worker
    * @param lockId - ID of the lock to release
-   * @param owner - Owner attempting to release the lock
+   * @param worker - Wwner attempting to release the lock
    * @returns Promise of boolean indicating if lock was released
    * @throws Error if shouldFailRelease is true
    */
-  async releaseLock(lockId: string, owner: string): Promise<boolean> {
+  async releaseLock(lockId: string, worker: string): Promise<boolean> {
     if (this.options.shouldFailRelease) {
       throw new Error('Failed to release lock');
     }
 
     const lock = this.locks.get(lockId);
-    if (!lock || lock.owner !== owner) {
+    if (!lock || lock.worker !== worker) {
       return false;
     }
 
     this.locks.delete(lockId);
     return true;
+  }
+
+  /**
+   * List all locks owned by a specific worker.
+   * @param worker - Worker to list locks for
+   * @returns An array of objects with lock details, each containing lockId, worker, and expiresAt
+   */
+  async listLocks(filters?: {
+    worker?: string | undefined;
+  }): Promise<{ lockId: string; worker: string; expiresAt: Date }[]> {
+    const locks = [];
+    for (const key of this.locks.keys()) {
+      const lock = this.locks.get(key);
+      if (typeof filters === 'undefined' || typeof filters.worker === 'undefined') {
+        locks.push({
+          lockId: key,
+          worker: lock!.worker,
+          expiresAt: new Date(lock!.expiresAt),
+        });
+        continue;
+      } else if (filters.worker == lock!.worker) {
+        locks.push({
+          lockId: key,
+          worker: lock!.worker,
+          expiresAt: new Date(lock!.expiresAt),
+        });
+      }
+    }
+
+    return locks;
   }
 
   /**
@@ -589,7 +616,7 @@ export class MockJobStorage implements JobStorage {
   async simulateOtherLeader(lockId: string, ttl: number): Promise<void> {
     const now = Date.now();
     this.locks.set(lockId, {
-      owner: 'other-leader',
+      worker: 'other-leader',
       expiresAt: now + ttl,
     });
   }

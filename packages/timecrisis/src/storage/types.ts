@@ -50,9 +50,9 @@ export interface JobStorage {
   /**
    * Get a job by ID.
    * @param id - ID of the job to retrieve
-   * @returns Promise that resolves with the job or null if not found
+   * @returns Promise that resolves with the job or undefined if not found
    */
-  getJob(id: string): Promise<Job | null>;
+  getJob(id: string): Promise<Job | undefined>;
 
   /**
    * Update a job's properties.
@@ -78,8 +78,6 @@ export interface JobStorage {
     status?: string[];
     type?: string;
     referenceId?: string;
-    lockedBefore?: Date;
-    lockedBy?: string;
     runAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]>;
@@ -92,8 +90,17 @@ export interface JobStorage {
   createJobRun(run: CreateJobRun): Promise<string>;
 
   /**
+   * Get a job run by ID.
+   * @param jobId - ID of the job to retrieve
+   * @param jobRunId - ID of the job run to retrieve
+   * @returns Promise that resolves with the job run or undefined if not found
+   */
+  getJobRun(jobId: string, jobRunId: string): Promise<JobRun | undefined>;
+
+  /**
    * Update a job run.
-   * @param id - ID of the job run to update
+   * @param jobId - ID of the job to update
+   * @param jobRunId - ID of the job run to update
    * @param updates - Partial job run object containing properties to update
    * @returns Promise that resolves when the update is complete
    */
@@ -211,28 +218,37 @@ export interface JobStorage {
   /**
    * Acquire a distributed lock.
    * @param lockId - ID of the lock to acquire
-   * @param owner - ID of the owner trying to acquire the lock
+   * @param worker - The worker trying to acquire the lock
    * @param ttl - Time-to-live duration for the lock in milliseconds
    * @returns Promise that resolves with true if lock was acquired, false otherwise
    */
-  acquireLock(lockId: string, owner: string, ttl: number): Promise<boolean>;
+  acquireLock(lockId: string, worker: string, ttl: number): Promise<boolean>;
 
   /**
-   * Extend an existing lock if owned by the specified owner.
+   * Extend an existing lock if owned by the specified worker.
    * @param lockId - ID of the lock to renew
-   * @param owner - ID of the owner trying to renew the lock
+   * @param worker - The worker trying to renew the lock
    * @param ttl - New time-to-live duration for the lock in milliseconds
    * @returns Promise that resolves with true if lock was renewed, false otherwise
    */
-  renewLock(lockId: string, owner: string, ttl: number): Promise<boolean>;
+  renewLock(lockId: string, worker: string, ttl: number): Promise<boolean>;
 
   /**
    * Release a distributed lock.
    * @param lockId - ID of the lock to release
-   * @param owner - ID of the owner trying to release the lock
+   * @param worker - The worker trying to release the lock
    * @returns Promise that resolves with true if lock was released, false otherwise
    */
-  releaseLock(lockId: string, owner: string): Promise<boolean>;
+  releaseLock(lockId: string, worker: string): Promise<boolean>;
+
+  /**
+   * List all locks held by a specific worker
+   * @param worker - The worker to list locks for
+   * @returns Promise that resolves with an array of lock data
+   */
+  listLocks(filters?: {
+    worker?: string | undefined;
+  }): Promise<{ lockId: string; worker: string; expiresAt: Date }[]>;
 
   /**
    * Acquire a slot for a specific job type and worker
