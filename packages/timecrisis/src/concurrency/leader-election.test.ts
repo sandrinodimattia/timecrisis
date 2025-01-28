@@ -1,22 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-import { LeaderElection } from './index.js';
+import { LeaderElection } from './leader-election.js';
 import { MockJobStorage } from '../storage/mock/index.js';
-import { DistributedLockError } from '../distributed-lock/index.js';
+import { DistributedLockError } from './distributed-lock.js';
+import { defaultValues, prepareEnvironment, resetEnvironment } from '../test-helpers/defaults.js';
 
 describe('LeaderElection', () => {
-  const node = 'test-node';
-  const lockTTL = 1000;
   let storage: MockJobStorage;
   let leader: LeaderElection;
 
   beforeEach(() => {
-    vi.useFakeTimers();
+    prepareEnvironment();
     storage = new MockJobStorage();
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
     });
   });
 
@@ -25,10 +24,8 @@ describe('LeaderElection', () => {
       await leader.stop();
     } finally {
       storage.reset();
-      // Clear all timers and mocks
-      vi.clearAllTimers();
-      vi.clearAllMocks();
-      vi.useRealTimers();
+
+      resetEnvironment();
     }
   });
 
@@ -69,12 +66,12 @@ describe('LeaderElection', () => {
     await leader.start();
 
     // Fast-forward half the TTL
-    await vi.advanceTimersByTimeAsync(lockTTL / 2);
+    await vi.advanceTimersByTimeAsync(defaultValues.lockTTL / 2);
     expect(acquireSpy).toHaveBeenCalledTimes(1); // Initial acquisition
     expect(renewSpy).toHaveBeenCalledTimes(1); // First renewal
 
     // Fast-forward another half TTL
-    await vi.advanceTimersByTimeAsync(lockTTL / 2);
+    await vi.advanceTimersByTimeAsync(defaultValues.lockTTL / 2);
     expect(acquireSpy).toHaveBeenCalledTimes(1); // Still just initial acquisition
     expect(renewSpy).toHaveBeenCalledTimes(2); // Second renewal
   });
@@ -85,7 +82,7 @@ describe('LeaderElection', () => {
     expect(leader.isCurrentLeader()).toBe(true);
 
     // Another node takes over leadership
-    await storage.simulateOtherLeader('SCHEDULER_LEADER', lockTTL);
+    await storage.simulateOtherLeader('chronotrigger/leader', defaultValues.lockTTL);
 
     // Force an immediate leadership check
     await leader.stop();
@@ -99,7 +96,7 @@ describe('LeaderElection', () => {
     await leader.stop();
 
     // Fast-forward time
-    await vi.advanceTimersByTimeAsync(lockTTL * 2);
+    await vi.advanceTimersByTimeAsync(defaultValues.lockTTL * 2);
     expect(renewalSpy).toHaveBeenCalledTimes(1); // Only the initial acquisition
   });
 
@@ -123,8 +120,8 @@ describe('LeaderElection', () => {
     const onAcquired = vi.fn();
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onAcquired,
     });
 
@@ -136,8 +133,8 @@ describe('LeaderElection', () => {
     const onLost = vi.fn();
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onLost,
     });
 
@@ -152,8 +149,8 @@ describe('LeaderElection', () => {
 
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onAcquired,
       onLost,
     });
@@ -169,8 +166,8 @@ describe('LeaderElection', () => {
     const onLost = vi.fn();
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onLost,
     });
 
@@ -179,7 +176,7 @@ describe('LeaderElection', () => {
     expect(leader.isCurrentLeader()).toBe(true);
 
     // Simulate another node taking leadership
-    await storage.simulateOtherLeader('SCHEDULER_LEADER', lockTTL);
+    await storage.simulateOtherLeader('chronotrigger/leader', defaultValues.lockTTL);
 
     // Force an immediate leadership check by triggering a renewal
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -195,8 +192,8 @@ describe('LeaderElection', () => {
 
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onAcquired,
       onLost,
     });
@@ -217,7 +214,7 @@ describe('LeaderElection', () => {
     // Run a few renewal cycles
     for (let i = 0; i < 3; i++) {
       // Advance to next interval
-      await vi.advanceTimersByTimeAsync(lockTTL / 2);
+      await vi.advanceTimersByTimeAsync(defaultValues.lockTTL / 2);
       expect(onAcquired).not.toHaveBeenCalled();
       expect(onLost).not.toHaveBeenCalled();
     }
@@ -229,8 +226,8 @@ describe('LeaderElection', () => {
 
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onAcquired,
       onLost,
     });
@@ -245,10 +242,10 @@ describe('LeaderElection', () => {
     onLost.mockClear();
 
     // Lose leadership
-    await storage.simulateOtherLeader('SCHEDULER_LEADER', lockTTL);
+    await storage.simulateOtherLeader('chronotrigger/leader', defaultValues.lockTTL);
 
     // Wait for the next check interval
-    await vi.advanceTimersByTimeAsync(lockTTL / 2);
+    await vi.advanceTimersByTimeAsync(defaultValues.lockTTL / 2);
     expect(onAcquired).not.toHaveBeenCalled();
     expect(onLost).toHaveBeenCalledTimes(1);
 
@@ -257,7 +254,7 @@ describe('LeaderElection', () => {
     onLost.mockClear();
 
     // Wait for lock to expire and next check interval
-    await vi.advanceTimersByTimeAsync(lockTTL * 2);
+    await vi.advanceTimersByTimeAsync(defaultValues.lockTTL * 2);
     expect(onAcquired).toHaveBeenCalledTimes(1);
     expect(onLost).not.toHaveBeenCalled();
   });
@@ -268,8 +265,8 @@ describe('LeaderElection', () => {
 
     leader = new LeaderElection({
       storage,
-      node,
-      lockTTL,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.lockTTL,
       onAcquired,
       onLost,
     });
@@ -285,7 +282,7 @@ describe('LeaderElection', () => {
 
     // Run multiple renewal cycles
     for (let i = 0; i < 3; i++) {
-      await vi.advanceTimersByTimeAsync(lockTTL / 2);
+      await vi.advanceTimersByTimeAsync(defaultValues.lockTTL / 2);
       expect(onAcquired).not.toHaveBeenCalled();
       expect(onLost).not.toHaveBeenCalled();
     }

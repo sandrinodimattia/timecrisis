@@ -1,5 +1,5 @@
 import { JobStorage } from '../storage/types.js';
-import { DistributedLock } from '../distributed-lock/index.js';
+import { DistributedLock, Lock } from './distributed-lock.js';
 
 /**
  * Options for creating a LeaderElection instance.
@@ -38,16 +38,18 @@ export interface LeaderOptions {
  * over, it loses leadership.
  */
 export class LeaderElection {
-  private readonly LOCK_NAME = 'SCHEDULER_LEADER';
-  private opts: LeaderOptions;
-  private lock: DistributedLock;
+  private readonly LOCK_NAME = 'chronotrigger/leader';
+  private readonly opts: LeaderOptions;
+  private readonly distributedLock: DistributedLock;
+
+  private lock?: Lock;
   private isLeader: boolean = false;
   private checkInterval?: NodeJS.Timeout;
 
   constructor(opts: LeaderOptions) {
     this.opts = opts;
-    this.lock = new DistributedLock({
-      node: opts.node,
+    this.distributedLock = new DistributedLock({
+      worker: opts.node,
       lockTTL: opts.lockTTL,
       storage: opts.storage,
     });
@@ -62,9 +64,13 @@ export class LeaderElection {
 
     try {
       // If we're already leader, try to renew instead of acquire
-      const succeeded = wasLeader
-        ? await this.lock.renew(this.LOCK_NAME)
-        : await this.lock.acquire(this.LOCK_NAME);
+      if (wasLeader) {
+        await this.lock!.renew();
+      } else {
+        this.lock = await this.distributedLock.acquire(this.LOCK_NAME);
+      }
+
+      const succeeded = !!this.lock;
 
       // First update our state
       const hadStateChange = succeeded !== wasLeader;
@@ -106,7 +112,7 @@ export class LeaderElection {
 
     try {
       if (wasLeader) {
-        await this.lock.release(this.LOCK_NAME);
+        await this.lock!.release();
         this.isLeader = false;
         if (this.opts.onLost) {
           await Promise.resolve(this.opts.onLost());
