@@ -1,11 +1,13 @@
 import { JobStorage } from '../storage/types.js';
 import { JobContext, JobDefinition } from './types.js';
 import { formatLockName } from '../concurrency/job-lock.js';
+import { Logger } from '../logger/index.js';
 
 /**
  * Implementation of the JobContext interface.
  */
 export class JobContextImpl implements JobContext {
+  public readonly logger: Logger;
   public readonly jobId: string;
   public readonly jobRunId: string;
   public readonly attempt: number;
@@ -19,6 +21,7 @@ export class JobContextImpl implements JobContext {
   private readonly shutdownRef: WeakRef<{ isShuttingDown: boolean }>;
 
   constructor(
+    logger: Logger,
     storage: JobStorage,
     jobDefinition: JobDefinition,
     worker: string,
@@ -30,6 +33,7 @@ export class JobContextImpl implements JobContext {
     payload: unknown,
     shutdownRef: WeakRef<{ isShuttingDown: boolean }>
   ) {
+    this.logger = logger;
     this.storage = storage;
     this.jobDefinition = jobDefinition;
     this.worker = worker;
@@ -53,7 +57,7 @@ export class JobContextImpl implements JobContext {
   /**
    * Log a message at the specified level.
    */
-  async log(
+  async persistLog(
     level: 'info' | 'warn' | 'error',
     message: string,
     metadata?: Record<string, unknown>

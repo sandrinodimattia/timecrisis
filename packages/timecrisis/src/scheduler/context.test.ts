@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { JobDefinition } from './types.js';
 import { JobContextImpl } from './context.js';
 import { JobStorage } from '../storage/types.js';
+import { EmptyLogger } from '../logger/index.js';
 import { MockJobStorage } from '../storage/mock/index.js';
 import { defaultJob, defaultValues, now } from '../test-helpers/defaults.js';
 
@@ -20,6 +21,7 @@ describe('JobContextImpl', () => {
       bar: z.number(),
     }),
     handle: async () => {},
+    concurrency: 2,
   };
 
   beforeEach(async () => {
@@ -34,6 +36,7 @@ describe('JobContextImpl', () => {
     });
 
     jobContext = new JobContextImpl(
+      new EmptyLogger(),
       mockStorage,
       testJobDefinition,
       defaultValues.workerName,
@@ -120,7 +123,7 @@ describe('JobContextImpl', () => {
       const message = 'Test log message';
       const metadata = { test: true };
 
-      await jobContext.log('info', message, metadata);
+      await jobContext.persistLog('info', message, metadata);
 
       expect(mockStorage.createJobLog).toHaveBeenCalledWith({
         jobId,
@@ -133,9 +136,9 @@ describe('JobContextImpl', () => {
     });
 
     it('should support different log levels', async () => {
-      await jobContext.log('info', 'Info message');
-      await jobContext.log('warn', 'Warning message');
-      await jobContext.log('error', 'Error message');
+      await jobContext.persistLog('info', 'Info message');
+      await jobContext.persistLog('warn', 'Warning message');
+      await jobContext.persistLog('error', 'Error message');
 
       expect(mockStorage.createJobLog).toHaveBeenCalledTimes(3);
       expect(mockStorage.createJobLog).toHaveBeenCalledWith(
