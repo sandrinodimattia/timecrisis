@@ -572,19 +572,19 @@ describe('InMemoryJobStorage', () => {
       const maxConcurrent = 2;
 
       // Should be able to acquire slots up to maxConcurrent
-      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
-      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
-      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(false);
+      expect(await storage.acquireTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, workerName, maxConcurrent)).toBe(false);
 
       // Running count should match acquired slots
       expect(await storage.getRunningCount(jobType)).toBe(2);
 
       // Release one slot
-      await storage.releaseJobTypeSlot(jobType, workerName);
+      await storage.releaseTypeSlot(jobType, workerName);
       expect(await storage.getRunningCount(jobType)).toBe(1);
 
       // Should be able to acquire another slot
-      expect(await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, workerName, maxConcurrent)).toBe(true);
     });
 
     test('should handle multiple workers correctly', async () => {
@@ -594,19 +594,19 @@ describe('InMemoryJobStorage', () => {
       const maxConcurrent = 3;
 
       // Both workers should be able to acquire slots
-      expect(await storage.acquireJobTypeSlot(jobType, worker1, maxConcurrent)).toBe(true);
-      expect(await storage.acquireJobTypeSlot(jobType, worker2, maxConcurrent)).toBe(true);
-      expect(await storage.acquireJobTypeSlot(jobType, worker1, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, worker1, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, worker2, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, worker1, maxConcurrent)).toBe(true);
 
       // Should hit the limit across workers
-      expect(await storage.acquireJobTypeSlot(jobType, worker2, maxConcurrent)).toBe(false);
+      expect(await storage.acquireTypeSlot(jobType, worker2, maxConcurrent)).toBe(false);
 
       // Release slots for worker1
-      await storage.releaseJobTypeSlot(jobType, worker1);
+      await storage.releaseTypeSlot(jobType, worker1);
       expect(await storage.getRunningCount(jobType)).toBe(2);
 
       // Worker2 should now be able to acquire a slot
-      expect(await storage.acquireJobTypeSlot(jobType, worker2, maxConcurrent)).toBe(true);
+      expect(await storage.acquireTypeSlot(jobType, worker2, maxConcurrent)).toBe(true);
     });
 
     test('should release all slots for a worker', async () => {
@@ -617,13 +617,13 @@ describe('InMemoryJobStorage', () => {
       const maxConcurrent = 5;
 
       // Acquire slots for both job types and workers
-      await storage.acquireJobTypeSlot(jobType1, worker1, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType1, worker2, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType2, worker1, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType2, worker2, maxConcurrent);
+      await storage.acquireTypeSlot(jobType1, worker1, maxConcurrent);
+      await storage.acquireTypeSlot(jobType1, worker2, maxConcurrent);
+      await storage.acquireTypeSlot(jobType2, worker1, maxConcurrent);
+      await storage.acquireTypeSlot(jobType2, worker2, maxConcurrent);
 
       // Release all slots for worker1
-      await storage.releaseAllJobTypeSlots(worker1);
+      await storage.releaseAllTypeSlots(worker1);
 
       // Check counts
       expect(await storage.getRunningCount(jobType1)).toBe(1); // worker2's slot
@@ -637,9 +637,9 @@ describe('InMemoryJobStorage', () => {
       const worker1 = 'worker-1';
       const maxConcurrent = 5;
 
-      await storage.acquireJobTypeSlot(jobType1, worker1, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType2, worker1, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType2, worker1, maxConcurrent);
+      await storage.acquireTypeSlot(jobType1, worker1, maxConcurrent);
+      await storage.acquireTypeSlot(jobType2, worker1, maxConcurrent);
+      await storage.acquireTypeSlot(jobType2, worker1, maxConcurrent);
 
       expect(await storage.getRunningCount()).toBe(3);
       expect(await storage.getRunningCount(jobType1)).toBe(1);

@@ -673,11 +673,7 @@ export class InMemoryJobStorage implements JobStorage {
    * @param maxConcurrent - Maximum allowed concurrent jobs for this type
    * @returns True if the slot was acquired, false otherwise
    */
-  async acquireJobTypeSlot(
-    jobType: string,
-    worker: string,
-    maxConcurrent: number
-  ): Promise<boolean> {
+  async acquireTypeSlot(jobType: string, worker: string, maxConcurrent: number): Promise<boolean> {
     return this.transaction(async () => {
       // Get or create the worker map for this job type
       let workerMap = this.runningJobCounts.get(jobType);
@@ -708,7 +704,7 @@ export class InMemoryJobStorage implements JobStorage {
    * @param jobType - The type of the job
    * @param workerName - The ID of the worker releasing the slot
    */
-  async releaseJobTypeSlot(jobType: string, workerName: string): Promise<void> {
+  async releaseTypeSlot(jobType: string, workerName: string): Promise<void> {
     return this.transaction(async () => {
       const workerMap = this.runningJobCounts.get(jobType);
       if (!workerMap) {
@@ -734,7 +730,7 @@ export class InMemoryJobStorage implements JobStorage {
    * Release all slots held by a specific worker
    * @param workerName - The ID of the worker to release all slots for
    */
-  async releaseAllJobTypeSlots(workerName: string): Promise<void> {
+  async releaseAllTypeSlots(workerName: string): Promise<void> {
     return this.transaction(async () => {
       for (const [jobType, workerMap] of this.runningJobCounts.entries()) {
         if (workerMap.has(workerName)) {

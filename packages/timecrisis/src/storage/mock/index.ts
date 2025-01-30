@@ -93,9 +93,9 @@ export class MockJobStorage implements JobStorage {
     this.getWorker = vi.fn(this.getWorker.bind(this));
     this.getInactiveWorkers = vi.fn(this.getInactiveWorkers.bind(this));
     this.getWorkers = vi.fn(this.getWorkers.bind(this));
-    this.acquireJobTypeSlot = vi.fn(this.acquireJobTypeSlot.bind(this));
-    this.releaseJobTypeSlot = vi.fn(this.releaseJobTypeSlot.bind(this));
-    this.releaseAllJobTypeSlots = vi.fn(this.releaseAllJobTypeSlots.bind(this));
+    this.acquireTypeSlot = vi.fn(this.acquireTypeSlot.bind(this));
+    this.releaseTypeSlot = vi.fn(this.releaseTypeSlot.bind(this));
+    this.releaseAllTypeSlots = vi.fn(this.releaseAllTypeSlots.bind(this));
     this.getRunningCount = vi.fn(this.getRunningCount.bind(this));
     this.deleteWorker = vi.fn(this.deleteWorker.bind(this));
   }
@@ -730,11 +730,7 @@ export class MockJobStorage implements JobStorage {
    * @param maxConcurrent - Maximum number of concurrent jobs allowed for this type
    * @returns Promise resolving to true if slot was acquired, false otherwise
    */
-  async acquireJobTypeSlot(
-    jobType: string,
-    worker: string,
-    maxConcurrent: number
-  ): Promise<boolean> {
+  async acquireTypeSlot(jobType: string, worker: string, maxConcurrent: number): Promise<boolean> {
     if (this.options.shouldFailAcquire) {
       throw new Error('Failed to acquire slot');
     }
@@ -767,7 +763,7 @@ export class MockJobStorage implements JobStorage {
    * @param jobType - The type of job to release a slot for
    * @param worker - The worker releasing the slot
    */
-  async releaseJobTypeSlot(jobType: string, worker: string): Promise<void> {
+  async releaseTypeSlot(jobType: string, worker: string): Promise<void> {
     if (this.options.shouldFailRelease) {
       throw new Error('Failed to release slot');
     }
@@ -795,7 +791,7 @@ export class MockJobStorage implements JobStorage {
    * Release all slots held by a specific worker
    * @param worker - The worker to release all slots for
    */
-  async releaseAllJobTypeSlots(worker: string): Promise<void> {
+  async releaseAllTypeSlots(worker: string): Promise<void> {
     if (this.options.shouldFailRelease) {
       throw new Error('Failed to release slots');
     }

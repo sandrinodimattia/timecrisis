@@ -558,20 +558,20 @@ describe('MockJobStorage', () => {
       const maxConcurrent = 2;
 
       // Acquire slots
-      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
-      expect(storage.acquireJobTypeSlot).toHaveBeenCalledWith(jobType, workerName, maxConcurrent);
+      await storage.acquireTypeSlot(jobType, workerName, maxConcurrent);
+      expect(storage.acquireTypeSlot).toHaveBeenCalledWith(jobType, workerName, maxConcurrent);
 
       // Release slots
-      await storage.releaseJobTypeSlot(jobType, workerName);
-      expect(storage.releaseJobTypeSlot).toHaveBeenCalledWith(jobType, workerName);
+      await storage.releaseTypeSlot(jobType, workerName);
+      expect(storage.releaseTypeSlot).toHaveBeenCalledWith(jobType, workerName);
     });
 
     it('should handle release all slots for a worker', async () => {
       const storage = new MockJobStorage();
       const workerName = 'worker-1';
 
-      await storage.releaseAllJobTypeSlots(workerName);
-      expect(storage.releaseAllJobTypeSlots).toHaveBeenCalledWith(workerName);
+      await storage.releaseAllTypeSlots(workerName);
+      expect(storage.releaseAllTypeSlots).toHaveBeenCalledWith(workerName);
     });
 
     it('should handle failures correctly', async () => {
@@ -584,17 +584,17 @@ describe('MockJobStorage', () => {
       const maxConcurrent = 2;
 
       // Acquire should fail
-      await expect(storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent)).rejects.toThrow(
+      await expect(storage.acquireTypeSlot(jobType, workerName, maxConcurrent)).rejects.toThrow(
         'Failed to acquire slot'
       );
 
       // Release should fail
-      await expect(storage.releaseJobTypeSlot(jobType, workerName)).rejects.toThrow(
+      await expect(storage.releaseTypeSlot(jobType, workerName)).rejects.toThrow(
         'Failed to release slot'
       );
 
       // Release all should fail
-      await expect(storage.releaseAllJobTypeSlots(workerName)).rejects.toThrow(
+      await expect(storage.releaseAllTypeSlots(workerName)).rejects.toThrow(
         'Failed to release slots'
       );
     });
@@ -606,9 +606,9 @@ describe('MockJobStorage', () => {
       const maxConcurrent = 2;
 
       // Acquire slots
-      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
-      await storage.acquireJobTypeSlot(jobType, workerName, maxConcurrent);
+      await storage.acquireTypeSlot(jobType, workerName, maxConcurrent);
+      await storage.acquireTypeSlot(jobType, workerName, maxConcurrent);
+      await storage.acquireTypeSlot(jobType, workerName, maxConcurrent);
 
       const res = await storage.getRunningCount(jobType);
       expect(res).toBe(2);
