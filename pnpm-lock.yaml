@@ -84,7 +84,7 @@ importers:
   packages/timecrisis-sqlite:
     dependencies:
       '@timecrisis/timecrisis':
-        specifier: workspace:^0.1.1
+        specifier: workspace:^0.2.0
         version: link:../timecrisis
       better-sqlite3:
         specifier: ^11.8.1
@@ -92,6 +92,9 @@ importers:
       sqlite-up:
         specifier: ^0.2.0
         version: 0.2.0
+      zod:
+        specifier: ^3.24.1
+        version: 3.24.1
 
 packages:
 

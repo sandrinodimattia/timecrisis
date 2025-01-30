@@ -1,12 +1,17 @@
 import { z } from 'zod';
 import { expect, vi } from 'vitest';
 
+import { TaskContext } from '../tasks/types.js';
 import { JobStorage } from '../storage/types.js';
 import { JobDefinition } from '../scheduler/types.js';
 import { CreateJob } from '../storage/schemas/job.js';
 import { EmptyLogger, Logger } from '../logger/index.js';
 import { MockJobStorage } from '../storage/mock/index.js';
 import { formatLockName } from '../concurrency/job-lock.js';
+import { JobStateMachine } from '../state-machine/index.js';
+import { LeaderElection } from '../concurrency/leader-election.js';
+import { DistributedLock } from '../concurrency/distributed-lock.js';
+import { ConcurrencyManager } from '../concurrency/concurrency-manager.js';
 
 export const now = new Date('2025-01-01T09:00:00.000Z');
 export const lastWeek = new Date('2024-12-25T09:00:00.000Z');
@@ -43,6 +48,42 @@ export const createJobLock = async function (
     worker ?? defaultValues.workerName,
     lockTTL ?? defaultValues.jobLockTTL
   );
+};
+
+export const createTaskContext = function ({
+  logger,
+  storage,
+}: {
+  logger?: Logger;
+  storage?: JobStorage;
+} = {}): TaskContext {
+  const loggerInstance = logger ?? createLogger();
+  const storageInstance = storage ?? createStorage();
+  return {
+    jobs: jobRegistrations,
+    worker: defaultValues.workerName,
+    logger: loggerInstance,
+    storage: storageInstance,
+    stateMachine: new JobStateMachine({
+      logger: loggerInstance,
+      storage: storageInstance,
+      jobs: defaultJobRegistrations,
+    }),
+    leaderElection: new LeaderElection({
+      logger: loggerInstance,
+      storage: storageInstance,
+      node: defaultValues.workerName,
+      lockTTL: defaultValues.distributedLockTTL,
+    }),
+    lock: new DistributedLock({
+      storage: storageInstance,
+      lockTTL: defaultValues.jobLockTTL,
+      worker: defaultValues.workerName,
+    }),
+    concurrency: new ConcurrencyManager(loggerInstance, {
+      maxConcurrentJobs: defaultValues.maxConcurrentJobs,
+    }),
+  };
 };
 
 export const expectJobLocked = async function (storage: JobStorage, jobId: string): Promise<void> {
@@ -91,6 +132,7 @@ export const defaultJob: CreateJob = {
 
 export const defaultJobDefinition = {
   type: 'test',
+  concurrency: 20,
   schema: z.object({ test: z.boolean() }),
   handle: (): Promise<void> => Promise.resolve(),
 } as unknown as JobDefinition;
@@ -98,6 +140,7 @@ vi.spyOn(defaultJobDefinition, 'handle');
 
 export const longRunningJobDefinition = {
   type: 'test-long',
+  concurrency: 20,
   schema: z.object({ test: z.boolean() }),
   handle: vi.fn().mockImplementation(async () => {
     await new Promise((resolve) => setTimeout(resolve, 2000));

@@ -1,95 +1,129 @@
 import { randomUUID } from 'crypto';
-import Database from 'better-sqlite3';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-
-import { SQLiteJobStorage } from './adapter.js';
 import { JobNotFoundError, ScheduledJobNotFoundError } from '@timecrisis/timecrisis';
 
+import {
+  createStorage,
+  defaultJob,
+  defaultValues,
+  now,
+  prepareEnvironment,
+  resetEnvironment,
+} from './test-helpers/defaults.js';
+import { SQLiteJobStorage } from './adapter.js';
+
 describe('SQLiteJobStorage', () => {
-  let db: Database.Database;
   let storage: SQLiteJobStorage;
-  const now = new Date('2025-01-23T00:00:00.000Z');
 
   beforeEach(async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(now);
-
-    // Create an in-memory database for testing
-    db = new Database(':memory:');
-    storage = new SQLiteJobStorage(db);
-    await storage.init();
-
-    // Clear all mocks before each test
-    vi.clearAllMocks();
+    prepareEnvironment();
+    const connection = await createStorage();
+    storage = connection.storage;
   });
 
   afterEach(async () => {
     await storage.close();
-
-    // Clear all timers and mocks
-    vi.clearAllTimers();
-    vi.clearAllMocks();
-    vi.useRealTimers();
+    resetEnvironment();
   });
 
   describe('Job Management', () => {
     it('should create and retrieve a job', async () => {
       const jobData = {
         type: 'test-job',
-        status: 'pending',
+        entityId: 'user-123',
         data: { test: 'data' },
-        priority: 1,
-        attempts: 0,
+        priority: 10,
+        status: 'pending' as const,
         maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
+        backoffStrategy: 'exponential' as const,
+        failReason: 'test failure',
+        failCount: 1,
+        expiresAt: new Date(now.getTime() + 3600000),
+        startedAt: now,
+        runAt: new Date(now.getTime() + 1800000),
+        finishedAt: new Date(now.getTime() + 2000000),
       };
 
-      const jobId = await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: { test: 'data' },
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
-      });
+      const jobId = await storage.createJob(jobData);
       expect(jobId).toBeDefined();
 
       const job = await storage.getJob(jobId);
       expect(job).toBeDefined();
+
+      // Verify all fields
       expect(job?.type).toBe(jobData.type);
-      expect(job?.status).toBe(jobData.status);
+      expect(job?.entityId).toBe(jobData.entityId);
       expect(job?.data).toEqual(jobData.data);
       expect(job?.priority).toBe(jobData.priority);
+      expect(job?.status).toBe(jobData.status);
+      expect(job?.maxRetries).toBe(jobData.maxRetries);
+      expect(job?.backoffStrategy).toBe(jobData.backoffStrategy);
+      expect(job?.failReason).toBe(jobData.failReason);
+      expect(job?.failCount).toBe(jobData.failCount);
+      expect(job?.expiresAt?.getTime()).toBe(jobData.expiresAt.getTime());
+      expect(job?.startedAt?.getTime()).toBe(jobData.startedAt.getTime());
+      expect(job?.runAt?.getTime()).toBe(jobData.runAt.getTime());
+      expect(job?.finishedAt?.getTime()).toBe(jobData.finishedAt.getTime());
+
+      // Verify system-generated fields
+      expect(job?.id).toBe(jobId);
+      expect(job?.createdAt).toBeInstanceOf(Date);
+      expect(job?.updatedAt).toBeInstanceOf(Date);
     });
 
     it('should update a job', async () => {
+      // First create a job
       const jobId = await storage.createJob({
         type: 'test-job',
-        status: 'pending',
+        entityId: 'user-123',
         data: { test: 'data' },
         priority: 1,
-        attempts: 0,
+        status: 'pending',
         maxRetries: 3,
         backoffStrategy: 'exponential',
-        runAt: new Date(),
+        runAt: now,
       });
 
+      // Update with all possible fields
       const updates = {
-        status: 'running',
+        entityId: 'user-456',
         data: { test: 'updated' },
+        priority: 15,
+        status: 'running' as const,
+        maxRetries: 5,
+        backoffStrategy: 'linear' as const,
+        failReason: 'temporary failure',
+        failCount: 1,
+        expiresAt: new Date(now.getTime() + 7200000),
+        startedAt: now,
+        runAt: new Date(now.getTime() + 3600000),
+        finishedAt: new Date(now.getTime() + 2500000),
       };
 
-      await storage.updateJob(jobId, {
-        status: 'running',
-        data: { test: 'updated' },
-      });
+      await vi.advanceTimersByTimeAsync(1000);
+      await storage.updateJob(jobId, updates);
       const job = await storage.getJob(jobId);
 
-      expect(job?.status).toBe(updates.status);
+      // Verify all updated fields
+      expect(job?.entityId).toBe(updates.entityId);
       expect(job?.data).toEqual(updates.data);
+      expect(job?.priority).toBe(updates.priority);
+      expect(job?.status).toBe(updates.status);
+      expect(job?.maxRetries).toBe(updates.maxRetries);
+      expect(job?.backoffStrategy).toBe(updates.backoffStrategy);
+      expect(job?.failReason).toBe(updates.failReason);
+      expect(job?.failCount).toBe(updates.failCount);
+      expect(job?.expiresAt?.getTime()).toBe(updates.expiresAt.getTime());
+      expect(job?.startedAt?.getTime()).toBe(updates.startedAt.getTime());
+      expect(job?.runAt?.getTime()).toBe(updates.runAt.getTime());
+      expect(job?.finishedAt?.getTime()).toBe(updates.finishedAt.getTime());
+
+      // Verify system fields are maintained/updated
+      expect(job?.id).toBe(jobId);
+      expect(job?.type).toBe('test-job'); // type should not change
+      expect(job?.createdAt).toBeInstanceOf(Date);
+      expect(job?.updatedAt).toBeInstanceOf(Date);
+      expect(job?.updatedAt.getTime()).toBeGreaterThan(job!.createdAt!.getTime());
     });
 
     it('should throw JobNotFoundError when updating non-existent job', async () => {
@@ -101,27 +135,17 @@ describe('SQLiteJobStorage', () => {
     });
 
     it('should list jobs with filters', async () => {
-      const now = new Date();
       await Promise.all([
         storage.createJob({
+          ...defaultJob,
           type: 'test-job-1',
           status: 'pending',
-          data: {},
-          priority: 1,
-          attempts: 0,
-          maxRetries: 3,
-          backoffStrategy: 'exponential',
-          runAt: now,
         }),
         storage.createJob({
+          ...defaultJob,
           type: 'test-job-2',
           status: 'running',
-          data: {},
           priority: 2,
-          attempts: 0,
-          maxRetries: 3,
-          backoffStrategy: 'exponential',
-          runAt: now,
         }),
       ]);
 
@@ -135,40 +159,36 @@ describe('SQLiteJobStorage', () => {
     });
 
     it('should handle complex job filtering scenarios', async () => {
-      const baseDate = new Date('2025-01-23T00:00:00.000Z');
       await Promise.all([
         storage.createJob({
           type: 'type-1',
           status: 'pending',
           data: {},
           priority: 1,
-          attempts: 0,
           maxRetries: 3,
           backoffStrategy: 'exponential',
-          runAt: new Date(baseDate.getTime() + 1000),
-          referenceId: 'ref-1',
+          runAt: new Date(now.getTime() + 1000),
+          entityId: 'ref-1',
         }),
         storage.createJob({
           type: 'type-1',
           status: 'running',
           data: {},
           priority: 2,
-          attempts: 0,
           maxRetries: 3,
           backoffStrategy: 'exponential',
-          runAt: new Date(baseDate.getTime() + 2000),
-          referenceId: 'ref-2',
+          runAt: new Date(now.getTime() + 2000),
+          entityId: 'ref-2',
         }),
         storage.createJob({
           type: 'type-2',
           status: 'pending',
           data: {},
           priority: 3,
-          attempts: 0,
           maxRetries: 3,
           backoffStrategy: 'exponential',
-          runAt: new Date(baseDate.getTime() + 3000),
-          referenceId: 'ref-1',
+          runAt: new Date(now.getTime() + 3000),
+          entityId: 'ref-1',
         }),
       ]);
 
@@ -176,17 +196,17 @@ describe('SQLiteJobStorage', () => {
       const pendingAndRunning = await storage.listJobs({ status: ['pending', 'running'] });
       expect(pendingAndRunning).toHaveLength(3);
 
-      // Test type and referenceId combination
+      // Test type and entityId combination
       const type1Ref1Jobs = await storage.listJobs({
         type: 'type-1',
-        referenceId: 'ref-1',
+        entityId: 'ref-1',
       });
       expect(type1Ref1Jobs).toHaveLength(1);
       expect(type1Ref1Jobs[0].type).toBe('type-1');
-      expect(type1Ref1Jobs[0].referenceId).toBe('ref-1');
+      expect(type1Ref1Jobs[0].entityId).toBe('ref-1');
 
       // Test runAt filtering
-      const futureRunAt = new Date(baseDate.getTime() + 2500);
+      const futureRunAt = new Date(now.getTime() + 2500);
       const jobsBeforeTime = await storage.listJobs({
         runAtBefore: futureRunAt,
       });
@@ -206,13 +226,9 @@ describe('SQLiteJobStorage', () => {
 
     it('should handle null and undefined filter values correctly', async () => {
       await storage.createJob({
+        ...defaultJob,
         type: 'test-job',
         status: 'pending',
-        data: {},
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
         runAt: undefined,
       });
 
@@ -227,41 +243,27 @@ describe('SQLiteJobStorage', () => {
 
     it('should handle concurrent job updates correctly', async () => {
       const jobId = await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: { test: 'data' },
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
+        ...defaultJob,
       });
 
       // Simulate concurrent updates
       await Promise.all([
-        storage.updateJob(jobId, { status: 'running', attempts: 1 }),
-        storage.updateJob(jobId, { status: 'running', attempts: 2 }),
+        storage.updateJob(jobId, { status: 'running', failCount: 1 }),
+        storage.updateJob(jobId, { status: 'running', failCount: 2 }),
       ]);
 
       const job = await storage.getJob(jobId);
-      expect(job?.attempts).toBe(2);
+      expect(job?.failCount).toBe(2);
     });
 
     it('should handle special characters and SQL injection attempts in filters', async () => {
       const jobId = await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: {},
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
-        referenceId: "ref-1'; DROP TABLE jobs; --",
+        ...defaultJob,
+        entityId: "ref-1'; DROP TABLE jobs; --",
       });
 
       const jobs = await storage.listJobs({
-        referenceId: "ref-1'; DROP TABLE jobs; --",
+        entityId: "ref-1'; DROP TABLE jobs; --",
       });
       expect(jobs).toHaveLength(1);
       expect(jobs[0].id).toBe(jobId);
@@ -273,23 +275,15 @@ describe('SQLiteJobStorage', () => {
 
     it('should handle null and undefined filter values correctly', async () => {
       await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: {},
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: null,
-        referenceId: null,
+        ...defaultJob,
+        runAt: undefined,
       });
 
       // Test with undefined values
       const jobsWithUndefinedFilters = await storage.listJobs({
-        type: 'test-job',
-        referenceId: undefined,
+        type: defaultJob.type,
+        entityId: defaultJob.entityId!,
         runAtBefore: undefined,
-        lockedBefore: undefined,
       });
       expect(jobsWithUndefinedFilters).toHaveLength(1);
     });
@@ -298,30 +292,16 @@ describe('SQLiteJobStorage', () => {
       // Create jobs with different statuses
       await Promise.all([
         storage.createJob({
-          type: 'test-job',
+          ...defaultJob,
           status: 'pending',
-          data: {},
-          priority: 1,
-          attempts: 0,
-          maxRetries: 3,
-          backoffStrategy: 'exponential',
         }),
         storage.createJob({
-          type: 'test-job',
+          ...defaultJob,
           status: 'running',
-          data: {},
-          priority: 1,
-          attempts: 0,
-          maxRetries: 3,
-          backoffStrategy: 'exponential',
         }),
         storage.createJob({
-          type: 'test-job',
+          ...defaultJob,
           status: 'failed',
-          data: {},
-          priority: 1,
-          attempts: 0,
-          maxRetries: 3,
           backoffStrategy: 'exponential',
         }),
       ]);
@@ -343,42 +323,6 @@ describe('SQLiteJobStorage', () => {
       expect(allJobs).toHaveLength(3);
     });
 
-    it('should handle date filters correctly across timezones', async () => {
-      const baseDate = new Date('2025-01-23T00:00:00.000Z');
-
-      // Create a job with a specific UTC time
-      await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: {},
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: baseDate,
-      });
-
-      // Test exact UTC time
-      const jobsAtExactTime = await storage.listJobs({
-        runAtBefore: baseDate,
-      });
-      expect(jobsAtExactTime).toHaveLength(1);
-
-      // Test with different timezone offset
-      const dateInDifferentTz = new Date(baseDate.getTime() + 60 * 60 * 1000); // +1 hour
-      const jobsWithTzOffset = await storage.listJobs({
-        runAtBefore: dateInDifferentTz,
-      });
-      expect(jobsWithTzOffset).toHaveLength(1);
-
-      // Test with date slightly before
-      const dateBefore = new Date(baseDate.getTime() - 1000); // 1 second before
-      const jobsWithDateBefore = await storage.listJobs({
-        runAtBefore: dateBefore,
-      });
-      expect(jobsWithDateBefore).toHaveLength(0);
-    });
-
     it('should handle limit parameter correctly', async () => {
       // Create multiple jobs
       await Promise.all(
@@ -388,7 +332,6 @@ describe('SQLiteJobStorage', () => {
             status: 'pending',
             data: {},
             priority: i + 1,
-            attempts: 0,
             maxRetries: 3,
             backoffStrategy: 'exponential',
           })
@@ -407,31 +350,6 @@ describe('SQLiteJobStorage', () => {
       const zeroJobs = await storage.listJobs({ limit: 1 });
       expect(zeroJobs).toHaveLength(1);
     });
-
-    it('should create job with default progress and update progress', async () => {
-      const jobId = await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: { test: 'data' },
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
-      });
-
-      // Check default progress
-      const job = await storage.getJob(jobId);
-      expect(job?.progress).toBe(0);
-
-      // Update progress
-      await storage.updateJob(jobId, {
-        progress: 50,
-      });
-
-      const updatedJob = await storage.getJob(jobId);
-      expect(updatedJob?.progress).toBe(50);
-    });
   });
 
   describe('Job Runs', () => {
@@ -439,65 +357,107 @@ describe('SQLiteJobStorage', () => {
 
     beforeEach(async () => {
       jobId = await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: { test: 'data' },
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
+        ...defaultJob,
       });
     });
 
     it('should create and retrieve a job run', async () => {
+      // First create a job to associate the run with
+      const jobId = await storage.createJob({
+        ...defaultJob,
+      });
+
+      // Create run with all possible fields
       const runData = {
         jobId,
-        status: 'running',
-        attempt: 1,
-        startedAt: new Date(),
+        status: 'running' as const,
+        progress: 45,
+        startedAt: now,
+        executionDuration: 5000,
+        finishedAt: new Date(now.getTime() + 1000), // 1 second later
+        attempt: 3,
+        error: 'Test error message',
+        error_stack: 'Error: Test error message\n    at TestFunction (/test.ts:1:1)',
       };
 
-      const runId = await storage.createJobRun({
-        jobId,
-        status: 'running',
-        attempt: 1,
-        startedAt: new Date(),
-      });
+      const runId = await storage.createJobRun(runData);
       const runs = await storage.listJobRuns(jobId);
 
       expect(runs).toHaveLength(1);
-      expect(runs[0].id).toBe(runId);
-      expect(runs[0].status).toBe(runData.status);
-      expect(runs[0].attempt).toBe(runData.attempt);
+      const run = runs[0];
+
+      // Verify all fields
+      expect(run.id).toBe(runId);
+      expect(run.jobId).toBe(runData.jobId);
+      expect(run.status).toBe(runData.status);
+      expect(run.executionDuration).toBe(runData.executionDuration);
+      expect(run.progress).toBe(runData.progress);
+      expect(run.startedAt.getTime()).toBe(runData.startedAt.getTime());
+      expect(run.finishedAt?.getTime()).toBe(runData.finishedAt.getTime());
+      expect(run.attempt).toBe(runData.attempt);
+      expect(run.error).toBe(runData.error);
+      expect(run.error_stack).toBe(runData.error_stack);
+
+      // Verify individual retrieval also works
+      const singleRun = await storage.getJobRun(runId);
+      expect(singleRun).toBeDefined();
+      expect(singleRun?.id).toBe(runId);
+      expect(singleRun?.jobId).toBe(runData.jobId);
+      expect(singleRun?.status).toBe(runData.status);
+      expect(singleRun?.progress).toBe(runData.progress);
+      expect(singleRun?.startedAt.getTime()).toBe(runData.startedAt.getTime());
+      expect(singleRun?.finishedAt?.getTime()).toBe(runData.finishedAt.getTime());
+      expect(singleRun?.attempt).toBe(runData.attempt);
+      expect(singleRun?.error).toBe(runData.error);
+      expect(singleRun?.error_stack).toBe(runData.error_stack);
     });
 
-    it('should update job run status correctly', async () => {
+    it('should update job run correctly', async () => {
+      // Create initial job and run
+      const jobId = await storage.createJob({
+        type: 'test-job',
+        status: 'pending',
+        data: { test: 'data' },
+        runAt: now,
+      });
+
       const runId = await storage.createJobRun({
         jobId,
         status: 'running',
+        progress: 0,
+        startedAt: now,
         attempt: 1,
-        startedAt: new Date(),
       });
 
-      await storage.updateJobRun(runId, {
-        status: 'completed',
-        finishedAt: new Date(),
-      });
+      // Update with all possible fields
+      const updates = {
+        status: 'failed' as const,
+        progress: 75,
+        executionDuration: 1000,
+        startedAt: new Date(now.getTime() + 1000), // 1 second after start
+        finishedAt: new Date(now.getTime() + 5000), // 5 seconds after start
+        attempt: 2,
+        error: 'Updated error message',
+        error_stack: 'Error: Updated error message\n    at UpdatedFunction (/updated.ts:1:1)',
+      };
 
-      const runs = await storage.listJobRuns(jobId);
-      expect(runs[0].status).toBe('completed');
-      expect(runs[0].finishedAt).toBeDefined();
+      await vi.advanceTimersByTimeAsync(1000);
+      await storage.updateJobRun(runId, updates);
+      const run = await storage.getJobRun(runId);
 
-      // Update to a new status
-      await storage.updateJobRun(runId, {
-        status: 'failed',
-        error: 'Test failure',
-      });
+      // Verify all updated fields
+      expect(run?.status).toBe(updates.status);
+      expect(run?.progress).toBe(updates.progress);
+      expect(run?.executionDuration).toBe(updates.executionDuration);
+      expect(run?.startedAt.getTime()).toBe(updates.startedAt.getTime());
+      expect(run?.finishedAt?.getTime()).toBe(updates.finishedAt.getTime());
+      expect(run?.attempt).toBe(updates.attempt);
+      expect(run?.error).toBe(updates.error);
+      expect(run?.error_stack).toBe(updates.error_stack);
 
-      const updatedRuns = await storage.listJobRuns(jobId);
-      expect(updatedRuns[0].status).toBe('failed');
-      expect(updatedRuns[0].error).toBe('Test failure');
+      // Verify unchanged fields
+      expect(run?.id).toBe(runId);
+      expect(run?.jobId).toBe(jobId);
     });
 
     it('should handle job run error scenarios', async () => {
@@ -579,14 +539,7 @@ describe('SQLiteJobStorage', () => {
 
     beforeEach(async () => {
       jobId = await storage.createJob({
-        type: 'test-job',
-        status: 'pending',
-        data: {},
-        priority: 1,
-        attempts: 0,
-        maxRetries: 3,
-        backoffStrategy: 'exponential',
-        runAt: new Date(),
+        ...defaultJob,
       });
 
       runId = await storage.createJobRun({
@@ -683,6 +636,8 @@ describe('SQLiteJobStorage', () => {
         scheduleValue: '* * * * *',
         data: { test: 'data' },
         enabled: true,
+        lastScheduledAt: new Date(now.getDate() + 1000),
+        nextRunAt: new Date(now.getDate() + 2000),
       };
 
       const jobId = await storage.createScheduledJob({
@@ -692,38 +647,56 @@ describe('SQLiteJobStorage', () => {
         scheduleValue: '* * * * *',
         data: { test: 'data' },
         enabled: true,
+        lastScheduledAt: new Date(now.getDate() + 1000),
+        nextRunAt: new Date(now.getDate() + 2000),
       });
       const job = await storage.getScheduledJob(jobId);
 
       expect(job).toBeDefined();
+      expect(job?.nextRunAt?.toISOString()).toBe(jobData.nextRunAt.toISOString());
+      expect(job?.lastScheduledAt?.toISOString()).toBe(jobData.lastScheduledAt.toISOString());
       expect(job?.name).toBe(jobData.name);
       expect(job?.type).toBe(jobData.type);
       expect(job?.scheduleType).toBe(jobData.scheduleType);
       expect(job?.scheduleValue).toBe(jobData.scheduleValue);
       expect(job?.data).toEqual(jobData.data);
       expect(job?.enabled).toBe(jobData.enabled);
+      expect(job?.createdAt?.toISOString()).toBe(now.toISOString());
+      expect(job?.updatedAt?.toISOString()).toBe(now.toISOString());
     });
 
     it('should update a scheduled job', async () => {
       const jobId = await storage.createScheduledJob({
-        name: 'test-scheduled-job',
-        type: 'test-job',
-        scheduleType: 'cron',
-        scheduleValue: '* * * * *',
-        data: { test: 'data' },
-        enabled: true,
+        name: 'test-scheduled-job2',
+        type: 'test-job2',
+        scheduleType: 'interval',
+        scheduleValue: '2m',
+        data: { test: 'data2' },
+        enabled: false,
       });
 
       const updates = {
-        name: 'updated-job',
-        enabled: false,
+        name: 'test-scheduled-job',
+        scheduleType: 'cron' as const,
+        scheduleValue: '* * * * *',
+        data: { test: 'data' },
+        enabled: true,
+        lastScheduledAt: new Date(now.getDate() + 1000),
+        nextRunAt: new Date(now.getDate() + 2000),
       };
 
       await storage.updateScheduledJob(jobId, updates);
       const job = await storage.getScheduledJob(jobId);
 
+      expect(job?.nextRunAt?.toISOString()).toBe(updates.nextRunAt.toISOString());
+      expect(job?.lastScheduledAt?.toISOString()).toBe(updates.lastScheduledAt.toISOString());
       expect(job?.name).toBe(updates.name);
+      expect(job?.scheduleType).toBe(updates.scheduleType);
+      expect(job?.scheduleValue).toBe(updates.scheduleValue);
+      expect(job?.data).toEqual(updates.data);
       expect(job?.enabled).toBe(updates.enabled);
+      expect(job?.createdAt?.toISOString()).toBe(now.toISOString());
+      expect(job?.updatedAt?.toISOString()).toBe(now.toISOString());
     });
 
     it('should throw ScheduledJobNotFoundError when updating non-existent job', async () => {
@@ -764,7 +737,7 @@ describe('SQLiteJobStorage', () => {
       await storage.createDeadLetterJob({
         jobId: 'test-job',
         jobType: 'test-type',
-        reason: 'test failed',
+        failReason: 'test failed',
         data: { foo: 'bar' },
         failedAt: new Date(),
       });
@@ -773,74 +746,130 @@ describe('SQLiteJobStorage', () => {
       expect(jobs).toHaveLength(1);
       expect(jobs[0].jobId).toBe('test-job');
       expect(jobs[0].jobType).toBe('test-type');
-      expect(jobs[0].reason).toBe('test failed');
+      expect(jobs[0].failReason).toBe('test failed');
       expect(jobs[0].data).toEqual({ foo: 'bar' });
     });
   });
 
   describe('Locks', () => {
+    it('should list all locks', async () => {
+      const lockId1 = 'test-lock-1';
+      const lockId2 = 'test-lock-2';
+      const worker1 = 'worker-1';
+      const worker2 = 'worker-2';
+
+      // Acquire locks with different workers
+      await storage.acquireLock(lockId1, worker1, defaultValues.lockTTL);
+      await storage.acquireLock(lockId2, worker2, defaultValues.lockTTL);
+
+      // List all locks
+      const locks = await storage.listLocks();
+      expect(locks).toHaveLength(2);
+      expect(locks).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ lockId: lockId1, worker: worker1 }),
+          expect.objectContaining({ lockId: lockId2, worker: worker2 }),
+        ])
+      );
+    });
+
+    it('should list locks filtered by worker', async () => {
+      const lockId1 = 'test-lock-1';
+      const lockId2 = 'test-lock-2';
+      const worker1 = 'worker-1';
+      const worker2 = 'worker-2';
+
+      // Acquire locks with different workers
+      await storage.acquireLock(lockId1, worker1, defaultValues.lockTTL);
+      await storage.acquireLock(lockId2, worker2, defaultValues.lockTTL);
+
+      // List locks for worker1
+      const worker1Locks = await storage.listLocks({ worker: worker1 });
+      expect(worker1Locks).toHaveLength(1);
+      expect(worker1Locks[0]).toEqual(
+        expect.objectContaining({
+          lockId: lockId1,
+          worker: worker1,
+        })
+      );
+
+      // List locks for worker2
+      const worker2Locks = await storage.listLocks({ worker: worker2 });
+      expect(worker2Locks).toHaveLength(1);
+      expect(worker2Locks[0]).toEqual(
+        expect.objectContaining({
+          lockId: lockId2,
+          worker: worker2,
+        })
+      );
+    });
+
     it('should acquire, renew, and release locks', async () => {
       const lockId = 'test-lock';
-      const owner = 'test-owner';
-      const ttlMs = 1000;
 
       // Acquire lock
-      const acquired = await storage.acquireLock(lockId, owner, ttlMs);
+      const acquired = await storage.acquireLock(
+        lockId,
+        defaultValues.workerName,
+        defaultValues.lockTTL
+      );
       expect(acquired).toBe(true);
 
       // Try to acquire same lock
-      const secondAcquire = await storage.acquireLock(lockId, 'other-owner', ttlMs);
+      const secondAcquire = await storage.acquireLock(lockId, 'other-owner', defaultValues.lockTTL);
       expect(secondAcquire).toBe(false);
 
       // Renew lock
-      const renewed = await storage.renewLock(lockId, owner, ttlMs);
+      const renewed = await storage.renewLock(
+        lockId,
+        defaultValues.workerName,
+        defaultValues.lockTTL
+      );
       expect(renewed).toBe(true);
 
       // Release lock
-      const released = await storage.releaseLock(lockId, owner);
+      const released = await storage.releaseLock(lockId, defaultValues.workerName);
       expect(released).toBe(true);
 
       // Verify lock is released
-      const acquiredAfterRelease = await storage.acquireLock(lockId, 'other-owner', ttlMs);
+      const acquiredAfterRelease = await storage.acquireLock(
+        lockId,
+        'other-owner',
+        defaultValues.lockTTL
+      );
       expect(acquiredAfterRelease).toBe(true);
     });
 
     it('should handle lock expiration correctly', async () => {
       const lockId = 'test-lock';
-      const owner = 'test-owner';
-      const shortTtlMs = 1000;
-
-      // Set time to now
-      const initialTime = new Date('2025-01-23T00:00:00.000Z');
-      vi.setSystemTime(initialTime);
 
       // Acquire initial lock
-      const acquired = await storage.acquireLock(lockId, owner, shortTtlMs);
+      const acquired = await storage.acquireLock(
+        lockId,
+        defaultValues.workerName,
+        defaultValues.lockTTL
+      );
       expect(acquired).toBe(true);
 
       // Move time forward past TTL
-      vi.setSystemTime(new Date(initialTime.getTime() + shortTtlMs + 100));
+      await vi.advanceTimersByTimeAsync(defaultValues.lockTTL + 100);
 
       // Another owner should be able to acquire the expired lock
       const newOwner = 'new-owner';
-      const reacquired = await storage.acquireLock(lockId, newOwner, shortTtlMs);
+      const reacquired = await storage.acquireLock(lockId, newOwner, defaultValues.lockTTL);
       expect(reacquired).toBe(true);
 
       // Original owner's renewal should fail
-      const renewed = await storage.renewLock(lockId, owner, shortTtlMs);
+      const renewed = await storage.renewLock(
+        lockId,
+        defaultValues.workerName,
+        defaultValues.lockTTL
+      );
       expect(renewed).toBe(false);
     });
   });
 
   describe('Cleanup', () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     it('should cleanup old jobs and related data', async () => {
       vi.setSystemTime(new Date(now.getTime() - 1000 * 60 * 60 * 24 * 7));
 
@@ -850,7 +879,6 @@ describe('SQLiteJobStorage', () => {
         status: 'completed',
         data: {},
         priority: 1,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         runAt: new Date(),
@@ -879,7 +907,7 @@ describe('SQLiteJobStorage', () => {
       });
 
       const job = await storage.getJob(jobId);
-      expect(job).toBeNull();
+      expect(job).toBeUndefined();
 
       const runs = await storage.listJobRuns(jobId);
       expect(runs).toHaveLength(0);
@@ -899,7 +927,6 @@ describe('SQLiteJobStorage', () => {
         status: 'completed',
         data: {},
         priority: 1,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         runAt: new Date(),
@@ -916,7 +943,6 @@ describe('SQLiteJobStorage', () => {
         status: 'failed',
         data: {},
         priority: 1,
-        attempts: 3,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         runAt: new Date(),
@@ -933,7 +959,7 @@ describe('SQLiteJobStorage', () => {
         jobType: 'test-job',
         data: {},
         failedAt: new Date(),
-        reason: 'test',
+        failReason: 'test',
       });
 
       // Move to current time
@@ -948,10 +974,10 @@ describe('SQLiteJobStorage', () => {
 
       // Check cleanup results
       const completedJob = await storage.getJob(oldCompletedJobId);
-      expect(completedJob).toBeNull(); // Should be cleaned up (30 days > 15 days retention)
+      expect(completedJob).toBeUndefined(); // Should be cleaned up (30 days > 15 days retention)
 
       const failedJob = await storage.getJob(oldFailedJobId);
-      expect(failedJob).not.toBeNull(); // Should not be cleaned up (20 days < 25 days retention)
+      expect(failedJob).not.toBeUndefined(); // Should not be cleaned up (20 days < 25 days retention)
 
       const deadLetterJobs = await storage.listDeadLetterJobs();
       expect(deadLetterJobs).toHaveLength(0); // Should be cleaned up (10 days < 15 days retention)
@@ -961,27 +987,42 @@ describe('SQLiteJobStorage', () => {
   describe('Metrics', () => {
     it('should return storage metrics', async () => {
       // Create some test data
-      await storage.createJob({
+      const jobId1 = await storage.createJob({
         type: 'test-job',
         status: 'completed',
         data: {},
         priority: 1,
-        attempts: 0,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         runAt: new Date(),
-        executionDuration: 1000,
       });
 
-      await storage.createJob({
+      await storage.createJobRun({
+        jobId: jobId1,
+        status: 'completed',
+        executionDuration: 1000,
+        attempt: 1,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      });
+
+      const jobId2 = await storage.createJob({
         type: 'test-job',
         status: 'failed',
         data: {},
         priority: 1,
-        attempts: 1,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         runAt: new Date(),
+      });
+
+      await storage.createJobRun({
+        jobId: jobId2,
+        status: 'completed',
+        executionDuration: 1000,
+        attempt: 1,
+        startedAt: new Date(),
+        finishedAt: new Date(),
       });
 
       await storage.createDeadLetterJob({
@@ -989,7 +1030,7 @@ describe('SQLiteJobStorage', () => {
         jobType: 'test-job',
         data: {},
         failedAt: new Date(),
-        reason: 'test',
+        failReason: 'test',
       });
 
       const metrics = await storage.getMetrics();
@@ -1005,6 +1046,144 @@ describe('SQLiteJobStorage', () => {
       // Check metrics by job type
       expect(metrics.averageDurationByType['test-job']).toBe(1000);
       expect(metrics.failureRateByType['test-job']).toBe(0.5); // 1 failed out of 2 total
+    });
+  });
+
+  describe('Worker Management', () => {
+    it('should register a worker', async () => {
+      const worker = await storage.registerWorker({ name: 'worker-1' });
+      expect(worker).toBe('worker-1');
+
+      const savedWorker = await storage.getWorker('worker-1');
+      expect(savedWorker).toBeTruthy();
+      expect(savedWorker?.name).toBe('worker-1');
+      expect(savedWorker?.first_seen).toBeInstanceOf(Date);
+      expect(savedWorker?.last_heartbeat).toBeInstanceOf(Date);
+    });
+
+    it('should update worker heartbeat', async () => {
+      await storage.registerWorker({ name: 'worker-1' });
+      const newHeartbeat = new Date();
+      await storage.updateWorkerHeartbeat('worker-1', { last_heartbeat: newHeartbeat });
+
+      const worker = await storage.getWorker('worker-1');
+      expect(worker?.last_heartbeat.getTime()).toBe(newHeartbeat.getTime());
+    });
+
+    it('should throw error when updating non-existent worker', async () => {
+      await expect(
+        storage.updateWorkerHeartbeat('non-existent', { last_heartbeat: new Date() })
+      ).rejects.toThrow();
+    });
+
+    it('should get inactive workers', async () => {
+      const now = new Date();
+      const oldDate = new Date(now.getTime() - 1000 * 60 * 60); // 1 hour ago
+
+      await storage.registerWorker({ name: 'active-worker' });
+      await storage.registerWorker({ name: 'inactive-worker' });
+      await storage.updateWorkerHeartbeat('inactive-worker', { last_heartbeat: oldDate });
+
+      const inactiveWorkers = await storage.getInactiveWorkers(now);
+      expect(inactiveWorkers).toHaveLength(1);
+      expect(inactiveWorkers[0].name).toBe('inactive-worker');
+    });
+
+    it('should delete worker', async () => {
+      await storage.registerWorker({ name: 'worker-1' });
+      await storage.deleteWorker('worker-1');
+
+      const worker = await storage.getWorker('worker-1');
+      expect(worker).toBeNull();
+    });
+
+    it('should throw error when deleting non-existent worker', async () => {
+      await expect(storage.deleteWorker('non-existent')).rejects.toThrow();
+    });
+  });
+
+  describe('Job Type Slot Management', () => {
+    beforeEach(async () => {
+      await storage.registerWorker({ name: 'worker-1' });
+      await storage.registerWorker({ name: 'worker-2' });
+    });
+
+    it('should acquire job type slot', async () => {
+      const acquired = await storage.acquireTypeSlot('test-job', 'worker-1', 2);
+      expect(acquired).toBe(true);
+
+      const count = await storage.getRunningCount('test-job');
+      expect(count).toBe(1);
+    });
+
+    it('should respect max concurrent limit', async () => {
+      const first = await storage.acquireTypeSlot('test-job', 'worker-1', 2);
+      const second = await storage.acquireTypeSlot('test-job', 'worker-2', 2);
+      const third = await storage.acquireTypeSlot('test-job', 'worker-1', 2);
+
+      expect(first).toBe(true);
+      expect(second).toBe(true);
+      expect(third).toBe(false);
+
+      const count = await storage.getRunningCount('test-job');
+      expect(count).toBe(2);
+    });
+
+    it('should release job type slot', async () => {
+      await storage.acquireTypeSlot('test-job', 'worker-1', 2);
+      await storage.releaseTypeSlot('test-job', 'worker-1');
+
+      const count = await storage.getRunningCount('test-job');
+      expect(count).toBe(0);
+    });
+
+    it('should release all job type slots for a worker', async () => {
+      await storage.acquireTypeSlot('test-job-1', 'worker-1', 2);
+      await storage.acquireTypeSlot('test-job-2', 'worker-1', 2);
+      await storage.releaseAllTypeSlots('worker-1');
+
+      const count1 = await storage.getRunningCount('test-job-1');
+      const count2 = await storage.getRunningCount('test-job-2');
+      expect(count1).toBe(0);
+      expect(count2).toBe(0);
+    });
+
+    it('should get total running count', async () => {
+      await storage.acquireTypeSlot('test-job-1', 'worker-1', 2);
+      await storage.acquireTypeSlot('test-job-2', 'worker-1', 2);
+      await storage.acquireTypeSlot('test-job-1', 'worker-2', 2);
+
+      const total = await storage.getRunningCount();
+      expect(total).toBe(3);
+    });
+
+    it('should get running count for specific job type', async () => {
+      await storage.acquireTypeSlot('test-job-1', 'worker-1', 5);
+      await storage.acquireTypeSlot('test-job-1', 'worker-2', 5);
+      await storage.acquireTypeSlot('test-job-2', 'worker-1', 5);
+
+      const count = await storage.getRunningCount('test-job-1');
+      expect(count).toBe(2);
+    });
+
+    it('should get total running count across all job types', async () => {
+      await storage.acquireTypeSlot('test-job-1', 'worker-1', 5);
+      await storage.acquireTypeSlot('test-job-1', 'worker-2', 5);
+      await storage.acquireTypeSlot('test-job-2', 'worker-1', 5);
+      await storage.acquireTypeSlot('test-job-3', 'worker-2', 5);
+
+      const total = await storage.getRunningCount();
+      expect(total).toBe(4);
+    });
+
+    it('should return 0 for non-existent job type', async () => {
+      const count = await storage.getRunningCount('non-existent-job');
+      expect(count).toBe(0);
+    });
+
+    it('should return 0 when no jobs are running', async () => {
+      const total = await storage.getRunningCount();
+      expect(total).toBe(0);
     });
   });
 });

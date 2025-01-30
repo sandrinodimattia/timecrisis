@@ -44,8 +44,9 @@
     "access": "public"
   },
   "dependencies": {
-    "better-sqlite3": "^11.8.1",
     "@timecrisis/timecrisis": "workspace:^0.2.0",
-    "sqlite-up": "^0.2.0"
+    "better-sqlite3": "^11.8.1",
+    "sqlite-up": "^0.2.0",
+    "zod": "^3.24.1"
   }
 }

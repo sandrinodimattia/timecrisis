@@ -6,16 +6,12 @@ export const SQLiteStatements = {
       status,
       data,
       priority,
-      progress,
-      attempts,
       max_retries,
       backoff_strategy,
       fail_reason,
       fail_count,
-      execution_duration,
-      reference_id,
+      entity_id,
       expires_at,
-      locked_at,
       started_at,
       run_at,
       finished_at,
@@ -27,16 +23,12 @@ export const SQLiteStatements = {
       @status,
       @data,
       @priority,
-      @progress,
-      @attempts,
       @max_retries,
       @backoff_strategy,
       @fail_reason,
       @fail_count,
-      @execution_duration,
-      @reference_id,
+      @entity_id,
       @expires_at,
-      @locked_at,
       @started_at,
       @run_at,
       @finished_at,
@@ -56,16 +48,12 @@ export const SQLiteStatements = {
       status = @status,
       data = @data,
       priority = @priority,
-      progress = @progress,
-      attempts = @attempts,
       max_retries = @max_retries,
       backoff_strategy = @backoff_strategy,
       fail_reason = @fail_reason,
       fail_count = @fail_count,
-      execution_duration = @execution_duration,
-      reference_id = @reference_id,
+      entity_id = @entity_id,
       expires_at = @expires_at,
-      locked_at = @locked_at,
       started_at = @started_at,
       run_at = @run_at,
       finished_at = @finished_at,
@@ -81,8 +69,7 @@ export const SQLiteStatements = {
     SELECT *
     FROM jobs
     WHERE (@type IS NULL OR type = @type)
-      AND (@referenceId IS NULL OR reference_id = @referenceId)
-      AND (@lockedBefore IS NULL OR locked_at <= @lockedBefore)
+      AND (@entityId IS NULL OR entity_id = @entityId)
       AND (run_at IS NULL OR (@runAtBefore IS NULL OR run_at <= @runAtBefore))
       AND (@status IS NULL OR status IN (SELECT value FROM json_each(@status)))
     ORDER BY priority DESC, created_at ASC
@@ -97,6 +84,7 @@ export const SQLiteStatements = {
       started_at,
       progress,
       finished_at,
+      execution_duration,
       attempt,
       error,
       error_stack
@@ -107,6 +95,7 @@ export const SQLiteStatements = {
       @started_at,
       @progress,
       @finished_at,
+      @execution_duration,
       @attempt,
       @error,
       @error_stack
@@ -124,6 +113,7 @@ export const SQLiteStatements = {
       started_at = @started_at,
       progress = @progress,
       finished_at = @finished_at,
+      execution_duration = @execution_duration,
       error = @error,
       error_stack = @error_stack,
       attempt = @attempt
@@ -239,14 +229,14 @@ export const SQLiteStatements = {
       job_type,
       data,
       failed_at,
-      reason
+      failed_reason
     ) VALUES (
       @id,
       @job_id,
       @job_type,
       @data,
       @failed_at,
-      @reason
+      @failed_reason
     )
   `,
 
@@ -259,6 +249,12 @@ export const SQLiteStatements = {
     WHERE failed_at < @failed_at
   `,
 
+  listLocks: `
+    SELECT id, worker, expires_at
+    FROM distributed_locks
+    WHERE (@worker IS NULL OR worker = @worker)
+  `,
+
   selectLock: `
     SELECT *
     FROM distributed_locks
@@ -266,25 +262,28 @@ export const SQLiteStatements = {
   `,
 
   insertLock: `
-    INSERT INTO distributed_locks (id, owner, acquired_at, expires_at, created_at)
-    VALUES (@id, @owner, @acquired_at, @expires_at, @created_at)
-    ON CONFLICT(id) DO UPDATE SET
-      owner = @owner,
-      acquired_at = @acquired_at,
-      expires_at = @expires_at
-    WHERE expires_at <= @acquired_at
+    INSERT INTO distributed_locks (id, worker, acquired_at, expires_at, created_at)
+    VALUES (@id, @worker, @now, @expires, @now)
+    ON CONFLICT(id) DO UPDATE
+      SET
+        worker      = excluded.worker,
+        acquired_at = excluded.acquired_at,
+        expires_at  = excluded.expires_at
+      /* only overwrite if it was expired */
+      WHERE distributed_locks.expires_at <= excluded.acquired_at;
   `,
 
   updateLock: `
     UPDATE distributed_locks
-    SET expires_at = @expires_at
-    WHERE id = @id AND owner = @owner
-    AND (expires_at > @now OR owner = @owner)
+    SET expires_at = @newExpiry
+    WHERE id = @lockId
+      AND worker = @worker
+      AND expires_at > @now
   `,
 
   deleteLock: `
     DELETE FROM distributed_locks
-    WHERE id = @id AND owner = @owner
+    WHERE id = @id AND worker = @worker
   `,
 
   deleteExpiredLocks: `
@@ -318,16 +317,17 @@ export const SQLiteStatements = {
 
   avgDuration: `
     SELECT
-      type,
-      COALESCE(AVG(execution_duration), 0) AS avg_duration
-    FROM jobs
-    WHERE status = 'completed' AND execution_duration IS NOT NULL
-    GROUP BY type
+      j.type,
+      COALESCE(AVG(r.execution_duration), 0) AS avg_duration
+    FROM jobs j
+    LEFT JOIN job_runs r ON j.id = r.job_id
+    WHERE r.status = 'completed' AND r.execution_duration IS NOT NULL
+    GROUP BY j.type
   `,
 
   failureRate: `
     SELECT
-      type,
+      j.type,
       CAST(
         COALESCE(
           CAST(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS FLOAT) /
@@ -335,8 +335,81 @@ export const SQLiteStatements = {
           0
         ) AS FLOAT
       ) as failure_rate
-    FROM jobs
+    FROM jobs j
     WHERE status IN ('completed', 'failed')
     GROUP BY type
+  `,
+
+  // Worker statements
+  insertWorker: `
+    INSERT INTO workers (name, first_seen, last_heartbeat)
+    VALUES (@name, @first_seen, @last_heartbeat)
+  `,
+
+  updateWorkerHeartbeat: `
+    UPDATE workers
+    SET last_heartbeat = @last_heartbeat
+    WHERE name = @name
+  `,
+
+  selectWorkerByName: `
+    SELECT * FROM workers
+    WHERE name = ?
+  `,
+
+  selectAllWorkers: `
+    SELECT * FROM workers
+  `,
+
+  selectInactiveWorkers: `
+    SELECT * FROM workers
+    WHERE last_heartbeat < ?
+  `,
+
+  deleteWorker: `
+    DELETE FROM workers
+    WHERE name = ?
+  `,
+
+  // Job type slot statements
+  upsertJobTypeSlot: `
+    INSERT INTO job_type_slots (job_type, worker, slot_count)
+    VALUES (@job_type, @worker, 1)
+    ON CONFLICT (job_type, worker)
+    DO UPDATE SET slot_count = slot_count + 1
+  `,
+
+  getTotalJobTypeSlots: `
+    SELECT COALESCE(SUM(slot_count), 0) as total
+    FROM job_type_slots
+    WHERE job_type = ?
+  `,
+
+  getTotalRunningJobsByType: `
+    SELECT COALESCE(SUM(slot_count), 0) as total
+    FROM job_type_slots
+    WHERE job_type = ?
+  `,
+
+  getTotalRunningJobs: `
+    SELECT COALESCE(SUM(slot_count), 0) as total
+    FROM job_type_slots
+  `,
+
+  decrementJobTypeSlot: `
+    UPDATE job_type_slots
+    SET slot_count = slot_count - 1
+    WHERE job_type = @job_type AND worker = @worker
+    AND slot_count > 0
+  `,
+
+  deleteEmptyJobTypeSlots: `
+    DELETE FROM job_type_slots
+    WHERE slot_count <= 0
+  `,
+
+  deleteWorkerJobTypeSlots: `
+    DELETE FROM job_type_slots
+    WHERE worker = ?
   `,
 };
