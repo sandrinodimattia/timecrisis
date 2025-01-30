@@ -15,7 +15,7 @@ interface WorkerAliveTaskConfig {
   /**
    * The name of the worker instance.
    */
-  name: string;
+  worker: string;
 
   /**
    * The interval in milliseconds at which to send heartbeats.
@@ -42,7 +42,7 @@ export class WorkerAliveTask {
       if (!this.worker) {
         // Register the worker if not already registered
         this.worker = await this.cfg.storage.registerWorker({
-          name: this.cfg.name,
+          name: this.cfg.worker,
         });
         return;
       }

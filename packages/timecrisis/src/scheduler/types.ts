@@ -255,7 +255,7 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
   /**
    * Maximum number of concurrent executions.
    */
-  concurrency?: number;
+  concurrency: number;
 
   /**
    * Job priority (-20 to 20, higher is more important).
@@ -298,7 +298,7 @@ export interface JobContext {
    * @param message - Message to log
    * @param metadata - Optional metadata to include with the log
    */
-  log(
+  persistLog(
     level: 'info' | 'warn' | 'error',
     message: string,
     metadata?: Record<string, unknown>

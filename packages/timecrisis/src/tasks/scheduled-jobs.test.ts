@@ -32,6 +32,7 @@ describe('ScheduledJobsTask', () => {
 
     storage = new MockJobStorage();
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       node: defaultValues.workerName,
       storage,
       lockTTL: defaultValues.distributedLockTTL,

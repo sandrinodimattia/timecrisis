@@ -28,6 +28,7 @@ import {
   WorkerAliveTask,
 } from '../tasks/index.js';
 
+import { TaskContext } from '../tasks/types.js';
 import { parseDuration } from '../lib/duration.js';
 import { EmptyLogger, Logger } from '../logger/index.js';
 import { Job, JobRun } from '../storage/schemas/index.js';
@@ -35,6 +36,7 @@ import { JobStateMachine } from '../state-machine/index.js';
 import { JobNotFoundError, JobStorage } from '../storage/types.js';
 import { LeaderElection } from '../concurrency/leader-election.js';
 import { DistributedLock } from '../concurrency/distributed-lock.js';
+import { ConcurrencyManager } from '../concurrency/concurrency-manager.js';
 
 export class JobScheduler {
   private worker: string;
@@ -45,6 +47,7 @@ export class JobScheduler {
   private isRunning: boolean = false;
   private opts: SchedulerConfig;
   private stateMachine: JobStateMachine;
+  private concurrency: ConcurrencyManager;
 
   private tasks: {
     workerInactiveCleanup: DeadWorkersTask;
@@ -79,8 +82,14 @@ export class JobScheduler {
       workerInactiveCheckInterval: opts.workerInactiveCheckInterval ?? 60000,
     };
 
+    // Initialize concurrency manager to track max concurrent jobs.
+    this.concurrency = new ConcurrencyManager(this.logger, {
+      maxConcurrentJobs: this.opts.maxConcurrentJobs!,
+    });
+
     // Initialize leader election process, without starting it.
     this.leaderElection = new LeaderElection({
+      logger: this.logger,
       storage: this.storage,
       node: this.worker,
       lockTTL: opts.leaderLockTTL ?? 30000,
@@ -93,58 +102,53 @@ export class JobScheduler {
     });
 
     // Create the different tasks which run in the background.
+    const taskContext: TaskContext = {
+      jobs: this.jobs,
+      worker: this.worker,
+      logger: this.logger,
+      storage: this.storage,
+      stateMachine: this.stateMachine,
+      leaderElection: this.leaderElection,
+      lock: new DistributedLock({
+        storage: this.storage,
+        lockTTL: 10000,
+        worker: this.worker,
+      }),
+      concurrency: new ConcurrencyManager(this.logger, {
+        maxConcurrentJobs: this.opts.maxConcurrentJobs!,
+      }),
+    };
+
     this.tasks = {
       pendingJobs: new PendingJobsTask({
-        distributedLock: new DistributedLock({
-          storage: this.storage,
-          lockTTL: 10000,
-          worker: this.worker,
-        }),
-        logger: this.logger,
-        storage: this.storage,
-        jobs: this.jobs,
-        stateMachine: this.stateMachine,
-        worker: this.worker,
-        executeForkMode: this.executeForkMode.bind(this),
-        maxConcurrentJobs: this.opts.maxConcurrentJobs!,
+        ...taskContext,
         jobLockTTL: this.opts.jobLockTTL!,
         pollInterval: this.opts.jobProcessingInterval!,
+        executeForkMode: this.executeForkMode.bind(this),
       }),
       scheduledJobs: new ScheduledJobsTask({
-        logger: this.logger,
-        storage: this.storage,
-        stateMachine: this.stateMachine,
-        leaderElection: this.leaderElection,
-        scheduledJobMaxStaleAge: this.opts.scheduledJobMaxStaleAge!,
+        ...taskContext,
         pollInterval: this.opts.jobSchedulingInterval!,
+        scheduledJobMaxStaleAge: this.opts.scheduledJobMaxStaleAge!,
       }),
       expiredJobs: new ExpiredJobsTask({
-        logger: this.logger,
-        storage: this.storage,
-        stateMachine: this.stateMachine,
-        leaderElection: this.leaderElection,
+        ...taskContext,
         jobLockTTL: this.opts.jobLockTTL!,
         pollInterval: this.opts.expiredJobCheckInterval!,
       }),
       storageCleanup: new StorageCleanupTask({
-        logger: this.logger,
-        storage: this.storage,
+        ...taskContext,
         pollInterval: 3600000,
         jobRetention: 365,
         failedJobRetention: 365,
         deadLetterRetention: 365,
       }),
       workerAlive: new WorkerAliveTask({
-        logger: this.logger,
-        storage: this.storage,
-        name: this.worker,
+        ...taskContext,
         heartbeatInterval: this.opts.workerHeartbeatInterval!,
       }),
       workerInactiveCleanup: new DeadWorkersTask({
-        logger: this.logger,
-        storage: this.storage,
-        stateMachine: this.stateMachine,
-        leaderElection: this.leaderElection,
+        ...taskContext,
         pollInterval: this.opts.workerInactiveCheckInterval!,
         workerDeadTimeout: this.opts.workerHeartbeatInterval! * 2,
       }),
@@ -268,7 +272,7 @@ export class JobScheduler {
           metadata?: Record<string, unknown>;
         }) => {
           if (msg.type === 'log') {
-            await ctx.log(msg.level, msg.message, msg.metadata);
+            await ctx.persistLog(msg.level, msg.message, msg.metadata);
           } else if (msg.type === 'touch') {
             await ctx.touch();
           } else if (msg.type === 'error') {
@@ -343,17 +347,17 @@ export class JobScheduler {
       const shutdownTimeout = this.opts.shutdownTimeout ?? 15000;
       const pollInterval = 500;
 
-      while (this.tasks.pendingJobs.getRunningCount() > 0) {
+      while (this.concurrency.getRunningCount() > 0) {
         const elapsedTime = Date.now() - startTime;
         if (elapsedTime >= shutdownTimeout) {
           this.logger.warn(
-            `Shutdown timeout of ${shutdownTimeout} ms reached with ${this.tasks.pendingJobs.getRunningCount()} jobs still running`
+            `Shutdown timeout of ${shutdownTimeout} ms reached with ${this.concurrency.getRunningCount()} jobs still running`
           );
           break;
         }
 
         this.logger.info(
-          `Waiting for ${this.tasks.pendingJobs.getRunningCount()} running jobs to finish (${elapsedTime}ms elapsed)...`
+          `Waiting for ${this.concurrency.getRunningCount()} running jobs to finish (${elapsedTime}ms elapsed)...`
         );
         await new Promise((resolve) => setTimeout(resolve, pollInterval));
       }

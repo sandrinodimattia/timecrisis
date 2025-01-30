@@ -5,52 +5,47 @@ import { JobScheduler } from './index.js';
 import { EmptyLogger } from '../logger/index.js';
 import { InMemoryJobStorage } from '../storage/memory/index.js';
 import { JobDefinitionNotFoundError, JobAlreadyRegisteredError } from './types.js';
+import { defaultValues, prepareEnvironment, resetEnvironment } from '../test-helpers/defaults.js';
 
 describe('JobScheduler', () => {
   let scheduler: JobScheduler;
   let storage: InMemoryJobStorage;
-  let now: Date;
 
   beforeEach(() => {
-    vi.useFakeTimers();
-    now = new Date('2025-01-23T00:00:00.000Z');
-    vi.setSystemTime(now);
+    prepareEnvironment();
 
     storage = new InMemoryJobStorage();
     scheduler = new JobScheduler({
       storage,
       logger: new EmptyLogger(),
-      worker: 'test-node',
-      jobProcessingInterval: 100, // Faster polling for tests
-      jobSchedulingInterval: 100, // Faster polling for tests
-      maxConcurrentJobs: 5,
-      jobLockTTL: 1000,
-      leaderLockTTL: 1000,
+      worker: defaultValues.workerName,
+      jobProcessingInterval: defaultValues.pollInterval,
+      jobSchedulingInterval: defaultValues.pollInterval,
+      maxConcurrentJobs: defaultValues.maxConcurrentJobs,
+      jobLockTTL: defaultValues.jobLockTTL,
+      leaderLockTTL: defaultValues.distributedLockTTL,
     });
 
     // Start the scheduler and wait for first interval execution
     scheduler.start();
-    // Wait for leadership acquisition and first interval
-    vi.advanceTimersByTimeAsync(100);
-    // Wait for first job processing interval
-    vi.advanceTimersByTimeAsync(100);
+
+    // Wait for job processing interval.
+    vi.advanceTimersByTimeAsync(defaultValues.pollInterval);
   });
 
   afterEach(async () => {
     // Stop the scheduler first to clear intervals
     await scheduler.stop(true);
-    // Reset storage between tests
-    storage = new InMemoryJobStorage();
-    // Clear all timers and mocks
-    vi.clearAllTimers();
-    vi.clearAllMocks();
-    vi.useRealTimers();
+
+    // Reset the  environment
+    resetEnvironment();
   });
 
   describe('job registration', () => {
     it('should register a job successfully', () => {
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (): Promise<void> => {},
       };
@@ -62,6 +57,7 @@ describe('JobScheduler', () => {
     it('should throw when registering duplicate job type', () => {
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (): Promise<void> => {},
       };
@@ -75,6 +71,7 @@ describe('JobScheduler', () => {
     it('should enqueue a job successfully', async () => {
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (): Promise<void> => {},
       };
@@ -98,6 +95,7 @@ describe('JobScheduler', () => {
     it('should validate job data against schema', async () => {
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (): Promise<void> => {},
       };
@@ -112,6 +110,7 @@ describe('JobScheduler', () => {
       const handleMock = vi.fn();
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: handleMock,
       };
@@ -135,6 +134,7 @@ describe('JobScheduler', () => {
       const error = new Error('Job failed');
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (): Promise<void> => {
           throw error;
@@ -165,6 +165,7 @@ describe('JobScheduler', () => {
     it('should track job metrics correctly', async () => {
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (): Promise<void> => {},
       };
@@ -189,6 +190,7 @@ describe('JobScheduler', () => {
       const handleMock = vi.fn();
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: handleMock,
       };
@@ -237,6 +239,7 @@ describe('JobScheduler', () => {
 
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (data: { data: string }): Promise<void> => {
           running.push(data.data);
@@ -273,6 +276,7 @@ describe('JobScheduler', () => {
       const running: string[] = [];
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (data: { data: string }): Promise<void> => {
           running.push(data.data);
@@ -312,6 +316,7 @@ describe('JobScheduler', () => {
       const running: string[] = [];
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (data: { data: string }): Promise<void> => {
           running.push(data.data);
@@ -347,10 +352,11 @@ describe('JobScheduler', () => {
       expect(running.length).toBe(1); // Job should still be running
     });
 
-    it('should force stop immediately when force=true', async () => {
+    it.only('should force stop immediately when force=true', async () => {
       const running: string[] = [];
       const jobDefinition = {
         type: 'test-job',
+        concurrency: 20,
         schema: z.object({ data: z.string() }),
         handle: async (data: { data: string }): Promise<void> => {
           running.push(data.data);

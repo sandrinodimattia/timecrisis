@@ -20,7 +20,7 @@ describe('WorkerAliveTask', () => {
     storage = createStorage();
     task = new WorkerAliveTask({
       storage,
-      name: defaultValues.workerName,
+      worker: defaultValues.workerName,
       heartbeatInterval: defaultValues.workerAliveInterval,
       logger: createLogger(),
     });
@@ -82,7 +82,7 @@ describe('WorkerAliveTask', () => {
 
     const failingTask = new WorkerAliveTask({
       storage,
-      name: defaultValues.workerName,
+      worker: defaultValues.workerName,
       heartbeatInterval: defaultValues.workerAliveInterval,
       logger: createLogger(),
     });
