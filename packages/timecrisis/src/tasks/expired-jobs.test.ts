@@ -21,6 +21,7 @@ import { LeaderElection } from '../concurrency/leader-election.js';
 // Mock leader election
 const createMockLeaderElection = (isLeader: boolean = true): LeaderElection => {
   const leaderElection = new LeaderElection({
+    logger: new EmptyLogger(),
     storage: new MockJobStorage(),
     node: defaultValues.workerName,
     lockTTL: defaultValues.distributedLockTTL,

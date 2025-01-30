@@ -151,7 +151,7 @@ export class DeadWorkersTask {
           }
 
           // Remove concurrency locks
-          await this.cfg.storage.releaseAllJobTypeSlots(worker.name);
+          await this.cfg.storage.releaseAllTypeSlots(worker.name);
           this.logger.info(`Released all job type slots for worker`, {
             worker_name: worker.name,
           });

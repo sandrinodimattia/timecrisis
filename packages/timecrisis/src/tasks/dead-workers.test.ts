@@ -30,6 +30,7 @@ describe('DeadWorkersTask', () => {
     jobs.set('test', defaultJobDefinition);
     leader = new LeaderElection({
       storage,
+      logger: new EmptyLogger(),
       node: defaultValues.workerName,
       lockTTL: defaultValues.distributedLockTTL,
     });
@@ -430,9 +431,9 @@ describe('DeadWorkersTask', () => {
     });
 
     // Acquire some job type slots for the worker
-    await storage.acquireJobTypeSlot('job-type-1', worker, 5);
-    await storage.acquireJobTypeSlot('job-type-1', worker, 5);
-    await storage.acquireJobTypeSlot('job-type-2', worker, 5);
+    await storage.acquireTypeSlot('job-type-1', worker, 5);
+    await storage.acquireTypeSlot('job-type-1', worker, 5);
+    await storage.acquireTypeSlot('job-type-2', worker, 5);
 
     // Verify slots are acquired
     expect(await storage.getRunningCount('job-type-1')).toBe(2);
@@ -463,10 +464,10 @@ describe('DeadWorkersTask', () => {
     const worker2 = await storage.registerWorker({ name: 'worker-2' });
 
     // Acquire slots for both workers
-    await storage.acquireJobTypeSlot('job-type-1', worker1, 5);
-    await storage.acquireJobTypeSlot('job-type-1', worker2, 5);
-    await storage.acquireJobTypeSlot('job-type-2', worker1, 5);
-    await storage.acquireJobTypeSlot('job-type-2', worker2, 5);
+    await storage.acquireTypeSlot('job-type-1', worker1, 5);
+    await storage.acquireTypeSlot('job-type-1', worker2, 5);
+    await storage.acquireTypeSlot('job-type-2', worker1, 5);
+    await storage.acquireTypeSlot('job-type-2', worker2, 5);
 
     // Verify initial slot counts
     expect(await storage.getRunningCount('job-type-1')).toBe(2);
