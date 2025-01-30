@@ -1,9 +1,9 @@
 import { Logger } from '../logger/index.js';
 
 /**
- * Configuration for the global concurrency manager.
+ * Configuration for the concurrency manager.
  */
-export interface GlobalConcurrencyConfig {
+export interface ConcurrencyConfig {
   /**
    * Maximum number of concurrent jobs that can be running across the entire process.
    */
@@ -11,15 +11,16 @@ export interface GlobalConcurrencyConfig {
 }
 
 /**
- * Manages global concurrency limits for job execution across the entire process.
+ * Manages concurrency limits for job execution across the entire process.
  * Uses a simple token bucket approach where each running job consumes one token.
  */
-export class GlobalConcurrencyManager {
-  private logger: Logger;
-  private maxConcurrentJobs: number;
-  private runningJobs = new Set<string>();
+export class ConcurrencyManager {
+  public readonly maxConcurrentJobs: number;
 
-  constructor(logger: Logger, config: GlobalConcurrencyConfig) {
+  private readonly logger: Logger;
+  private readonly runningJobs = new Set<string>();
+
+  constructor(logger: Logger, config: ConcurrencyConfig) {
     this.logger = logger.child('global-concurrency');
     this.maxConcurrentJobs = config.maxConcurrentJobs;
   }
@@ -40,22 +41,22 @@ export class GlobalConcurrencyManager {
 
   /**
    * Try to acquire a slot to run a job. Returns true if successful,
-   * false if we've hit the global concurrency limit.
+   * false if we've hit the concurrency limit.
    */
   public acquire(jobId: string): boolean {
     if (this.runningJobs.size >= this.maxConcurrentJobs) {
-      this.logger.debug('Hit global concurrency limit', {
+      this.logger.debug('Concurrency limit reached, job cannot be run', {
         jobId,
-        currentCount: this.runningJobs.size,
-        maxConcurrent: this.maxConcurrentJobs,
+        current: this.runningJobs.size,
+        max: this.maxConcurrentJobs,
       });
       return false;
     }
 
     this.runningJobs.add(jobId);
-    this.logger.debug('Acquired concurrency slot', {
+    this.logger.debug('Concurrency slot acquired', {
       jobId,
-      currentCount: this.runningJobs.size,
+      current: this.runningJobs.size,
     });
     return true;
   }
@@ -66,9 +67,9 @@ export class GlobalConcurrencyManager {
   public release(jobId: string): void {
     if (this.runningJobs.has(jobId)) {
       this.runningJobs.delete(jobId);
-      this.logger.debug('Released concurrency slot', {
+      this.logger.debug('Concurrency slot released', {
         jobId,
-        currentCount: this.runningJobs.size,
+        current: this.runningJobs.size,
       });
     }
   }

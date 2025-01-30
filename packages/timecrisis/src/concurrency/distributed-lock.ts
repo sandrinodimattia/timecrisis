@@ -1,3 +1,4 @@
+import { Lock } from './lock.js';
 import { JobStorage } from '../storage/types.js';
 
 export class DistributedLockError extends Error {
@@ -8,7 +9,7 @@ export class DistributedLockError extends Error {
   }
 }
 
-export interface DistributedLockOptions {
+export interface DistributedLockConfig {
   /**
    * Storage adapter for persisting locks
    **/
@@ -25,49 +26,11 @@ export interface DistributedLockOptions {
   lockTTL: number;
 }
 
-export class Lock {
-  constructor(
-    private readonly opts: DistributedLockOptions,
-    public readonly name: string,
-    private readonly lockTTL: number
-  ) {}
-
-  /**
-   * Release a lock.
-   */
-  async release(): Promise<void> {
-    try {
-      await this.opts.storage.releaseLock(this.name, this.opts.worker);
-    } catch (error) {
-      throw new DistributedLockError(
-        error instanceof Error ? error.message : 'Failed to release lock'
-      );
-    }
-  }
-
-  /**
-   * Renew an existing lock.
-   */
-  async renew(): Promise<boolean> {
-    try {
-      return await this.opts.storage.renewLock(
-        this.name,
-        this.opts.worker,
-        this.lockTTL ?? this.opts.lockTTL
-      );
-    } catch (error) {
-      throw new DistributedLockError(
-        error instanceof Error ? error.message : 'Failed to renew lock'
-      );
-    }
-  }
-}
-
 export class DistributedLock {
-  private opts: DistributedLockOptions;
+  private cfg: DistributedLockConfig;
 
-  constructor(opts: DistributedLockOptions) {
-    this.opts = opts;
+  constructor(config: DistributedLockConfig) {
+    this.cfg = config;
   }
 
   /**
@@ -77,13 +40,13 @@ export class DistributedLock {
    */
   async acquire(lockName: string, lockTTL?: number): Promise<Lock | undefined> {
     try {
-      const acquired = await this.opts.storage.acquireLock(
+      const acquired = await this.cfg.storage.acquireLock(
         lockName,
-        this.opts.worker,
-        lockTTL ?? this.opts.lockTTL
+        this.cfg.worker,
+        lockTTL ?? this.cfg.lockTTL
       );
       if (acquired) {
-        return new Lock(this.opts, lockName, lockTTL ?? this.opts.lockTTL);
+        return new Lock(lockName, lockTTL ?? this.cfg.lockTTL, this.cfg);
       } else {
         return undefined;
       }

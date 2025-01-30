@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+import { EmptyLogger } from '../logger/index.js';
 import { LeaderElection } from './leader-election.js';
 import { MockJobStorage } from '../storage/mock/index.js';
 import { DistributedLockError } from './distributed-lock.js';
@@ -13,6 +14,7 @@ describe('LeaderElection', () => {
     prepareEnvironment();
     storage = new MockJobStorage();
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -119,6 +121,7 @@ describe('LeaderElection', () => {
   it('should call onAcquired when leadership is acquired', async () => {
     const onAcquired = vi.fn();
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -132,6 +135,7 @@ describe('LeaderElection', () => {
   it('should call onLost when leadership is released', async () => {
     const onLost = vi.fn();
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -148,6 +152,7 @@ describe('LeaderElection', () => {
     const onLost = vi.fn().mockImplementation(() => Promise.resolve());
 
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -165,6 +170,7 @@ describe('LeaderElection', () => {
   it('should call onLost when leadership is lost due to acquisition failure', async () => {
     const onLost = vi.fn();
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -191,6 +197,7 @@ describe('LeaderElection', () => {
     const onLost = vi.fn();
 
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -225,6 +232,7 @@ describe('LeaderElection', () => {
     const onLost = vi.fn();
 
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,
@@ -264,6 +272,7 @@ describe('LeaderElection', () => {
     const onLost = vi.fn();
 
     leader = new LeaderElection({
+      logger: new EmptyLogger(),
       storage,
       node: defaultValues.workerName,
       lockTTL: defaultValues.lockTTL,

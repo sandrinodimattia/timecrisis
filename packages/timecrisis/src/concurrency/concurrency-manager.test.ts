@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 
 import { EmptyLogger } from '../logger/index.js';
-import { GlobalConcurrencyManager } from './global-concurrency.js';
+import { ConcurrencyManager } from './concurrency-manager.js';
 
-describe('GlobalConcurrencyManager', () => {
-  let manager: GlobalConcurrencyManager;
+describe('ConcurrencyManager', () => {
+  let manager: ConcurrencyManager;
 
   beforeEach(() => {
-    manager = new GlobalConcurrencyManager(new EmptyLogger(), { maxConcurrentJobs: 2 });
+    manager = new ConcurrencyManager(new EmptyLogger(), { maxConcurrentJobs: 2 });
   });
 
-  it('should respect global concurrency limits', () => {
+  it('should respect concurrency limits', () => {
     // Should be able to acquire first two slots
     expect(manager.acquire('job-1')).toBe(true);
     expect(manager.acquire('job-2')).toBe(true);
