@@ -37,12 +37,12 @@ export const JobRunSchema = z.object({
   /**
    * When the run completed
    */
-  finishedAt: z.date().optional(),
+  finishedAt: z.date().nullable().optional(),
 
   /**
    * Duration of execution in milliseconds.
    */
-  executionDuration: z.number().int().min(0).optional(),
+  executionDuration: z.number().int().min(0).nullable().optional(),
 
   /**
    * Which attempt this run represents
@@ -52,12 +52,12 @@ export const JobRunSchema = z.object({
   /**
    * Error message if run failed.
    */
-  error: z.string().optional(),
+  error: z.string().nullable().optional(),
 
   /**
    * Error stack trace if run failed.
    */
-  error_stack: z.string().optional(),
+  error_stack: z.string().nullable().optional(),
 });
 
 /**
