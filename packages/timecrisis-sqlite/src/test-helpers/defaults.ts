@@ -26,6 +26,7 @@ export const createStorage = async function createStorage(
 ): Promise<{ db: Database.Database; storage: SQLiteJobStorage }> {
   // Create an in-memory database for testing
   const db = new Database(databasePath ?? ':memory:');
+  db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   const storage = new SQLiteJobStorage(db);
   await storage.init();
@@ -50,6 +51,7 @@ export const defaultValues = {
   schedulerJobMaxStaleAge: 240000,
   workerAliveInterval: 100,
   workerDeadTimeout: 45000,
+  scatterInterval: 25,
 };
 
 export const defaultJob: CreateJob = {

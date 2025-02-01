@@ -596,7 +596,7 @@ describe('PendingJobsTask', () => {
       defaultJobRegistrations.set('test-shutdown-expect', jobDef as unknown as JobDefinition);
 
       // Create multiple jobs and mock storage
-      await Promise.all([
+      const jobs = [
         ctx.storage.createJob({
           ...defaultJob,
           type: 'test-shutdown-expect',
@@ -605,7 +605,8 @@ describe('PendingJobsTask', () => {
           ...defaultJob,
           type: 'test-shutdown-expect',
         }),
-      ]);
+      ];
+      await Promise.all(jobs);
 
       // Start executing jobs
       const executePromise = task.execute();
@@ -617,7 +618,9 @@ describe('PendingJobsTask', () => {
       await task.stop();
 
       // Advance time to complete both timeouts
-      await vi.advanceTimersByTimeAsync(defaultValues.longRunningJobDuration + 100);
+      await vi.advanceTimersByTimeAsync(
+        defaultValues.longRunningJobDuration + 100 + defaultValues.scatterWaitDelay * jobs.length
+      );
 
       // Wait for job execution to complete
       await executePromise;

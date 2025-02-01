@@ -115,6 +115,7 @@ export const defaultValues = {
   schedulerJobMaxStaleAge: 240000,
   workerAliveInterval: 100,
   workerDeadTimeout: 45000,
+  scatterWaitDelay: 25,
 };
 
 export const defaultJob: CreateJob = {

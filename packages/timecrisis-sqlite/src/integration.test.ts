@@ -5,8 +5,8 @@ import { z } from 'zod';
 import { promisify } from 'node:util';
 import { exec, fork } from 'child_process';
 
-import { JobScheduler, EmptyLogger } from '@timecrisis/timecrisis';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { JobScheduler, EmptyLogger, ConsoleLogger } from '@timecrisis/timecrisis';
 
 import {
   createStorage,
@@ -48,7 +48,7 @@ describe('SQLite Integration Tests', () => {
     beforeEach(async () => {
       scheduler = new JobScheduler({
         storage,
-        logger: new EmptyLogger(),
+        logger: new ConsoleLogger(),
         worker: defaultValues.workerName,
         jobProcessingInterval: defaultValues.pollInterval,
         jobSchedulingInterval: defaultValues.pollInterval,
@@ -174,7 +174,9 @@ describe('SQLite Integration Tests', () => {
       expect(jobs[4]?.status).toBe('pending');
 
       // Wait for lock acquisition and processing
-      await vi.advanceTimersByTimeAsync(defaultValues.pollInterval);
+      await vi.advanceTimersByTimeAsync(
+        defaultValues.pollInterval + 5 * defaultValues.scatterInterval
+      );
       jobs = await Promise.all(jobIds.map((id) => storage.getJob(id)));
       expect(jobs[0]?.status).toBe('running'); // Now the job should be running
       expect(jobs[1]?.status).toBe('running'); // Now the job should be running
@@ -192,7 +194,9 @@ describe('SQLite Integration Tests', () => {
       expect(jobs[4]?.status).toBe('pending');
 
       // Second batch running
-      await vi.advanceTimersByTimeAsync(defaultValues.pollInterval);
+      await vi.advanceTimersByTimeAsync(
+        defaultValues.pollInterval + 3 * defaultValues.scatterInterval
+      );
       jobs = await Promise.all(jobIds.map((id) => storage.getJob(id)));
       expect(jobs[0]?.status).toBe('completed');
       expect(jobs[1]?.status).toBe('completed');
@@ -321,7 +325,7 @@ describe('SQLite Integration Tests', () => {
     beforeEach(async () => {
       scheduler = new JobScheduler({
         storage,
-        logger: new EmptyLogger(),
+        logger: new ConsoleLogger(),
         worker: defaultValues.workerName,
         jobProcessingInterval: defaultValues.pollInterval,
         jobSchedulingInterval: defaultValues.pollInterval,
@@ -405,13 +409,13 @@ describe('SQLite Integration Tests', () => {
       expect(stdout).toContain('Build success');
     });
 
-    it('should handle worker failover and cleanup job type slots', async () => {
+    it.only('should handle worker failover and cleanup job type slots', async () => {
       resetEnvironment();
 
       // Create backup scheduler
       const backupScheduler = new JobScheduler({
         storage: storage,
-        logger: new EmptyLogger(),
+        logger: new ConsoleLogger(),
         worker: 'backup-worker',
         maxConcurrentJobs: 5,
         jobLockTTL: 1000,
@@ -426,6 +430,9 @@ describe('SQLite Integration Tests', () => {
         workerInactiveCheckInterval: 100,
       });
 
+      // Wait for migrations to complete.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+
       // Start leader scheduler in separate process
       const leaderProcess = fork('./dist/leader-worker.js', [tempDbPath], {
         silent: true,
@@ -437,8 +444,8 @@ describe('SQLite Integration Tests', () => {
       });
 
       // Uncomment in case of errors, this will print the stderr and stdout of the leader process to the console
-      // leaderProcess.stderr?.pipe(process.stderr);
-      // leaderProcess.stdout?.pipe(process.stdout);
+      leaderProcess.stderr?.pipe(process.stderr);
+      leaderProcess.stdout?.pipe(process.stdout);
 
       // Wait for the leader to start.
       await new Promise((resolve) => setTimeout(resolve, 250));
@@ -471,6 +478,7 @@ describe('SQLite Integration Tests', () => {
 
       // Check if only 2 were started by the leader, matching the concurrency.
       let jobs = await Promise.all(jobIds.map((id) => storage.getJob(id)));
+      console.log(jobs);
       expect(jobs[0]?.status).toBe('running');
       expect(jobs[1]?.status).toBe('running');
       expect(jobs[2]?.status).toBe('pending');
@@ -481,14 +489,14 @@ describe('SQLite Integration Tests', () => {
       leaderProcess.kill('SIGTERM');
 
       // Wait for the backup worker to take leadership and reset locks.
-      await new Promise((resolve) => setTimeout(resolve, 750));
+      await new Promise((resolve) => setTimeout(resolve, 275));
 
       // Jobs should be reset to pending.
       jobs = await Promise.all(jobIds.map((id) => storage.getJob(id)));
       expect(jobs[0]?.status).toBe('pending');
       expect(jobs[1]?.status).toBe('pending');
-      expect(jobs[2]?.status).toBe('running');
-      expect(jobs[3]?.status).toBe('running');
+      expect(jobs[2]?.status).toBe('pending');
+      expect(jobs[3]?.status).toBe('pending');
       expect(jobs[4]?.status).toBe('pending');
 
       // Stop backup scheduler

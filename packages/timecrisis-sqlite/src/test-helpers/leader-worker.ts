@@ -13,8 +13,11 @@ if (!dbPath) {
 // Initialize storage
 const db = new Database(dbPath);
 db.pragma('busy_timeout = 5000');
+db.pragma('journal_mode = WAL');
 const storage = new SQLiteJobStorage(db);
-await storage.init();
+await storage.init({
+  runMigrations: false,
+});
 
 const logger = new ConsoleLogger().child('leader-worker');
 
