@@ -352,7 +352,7 @@ describe('JobScheduler', () => {
       expect(running.length).toBe(1); // Job should still be running
     });
 
-    it.only('should force stop immediately when force=true', async () => {
+    it('should force stop immediately when force=true', async () => {
       const running: string[] = [];
       const jobDefinition = {
         type: 'test-job',
