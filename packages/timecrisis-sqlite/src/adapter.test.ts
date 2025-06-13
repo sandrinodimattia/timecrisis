@@ -377,7 +377,7 @@ describe('SQLiteJobStorage', () => {
         finishedAt: new Date(now.getTime() + 1000), // 1 second later
         attempt: 3,
         error: 'Test error message',
-        error_stack: 'Error: Test error message\n    at TestFunction (/test.ts:1:1)',
+        errorStack: 'Error: Test error message\n    at TestFunction (/test.ts:1:1)',
       };
 
       const runId = await storage.createJobRun(runData);
@@ -396,7 +396,7 @@ describe('SQLiteJobStorage', () => {
       expect(run.finishedAt?.getTime()).toBe(runData.finishedAt.getTime());
       expect(run.attempt).toBe(runData.attempt);
       expect(run.error).toBe(runData.error);
-      expect(run.error_stack).toBe(runData.error_stack);
+      expect(run.errorStack).toBe(runData.errorStack);
 
       // Verify individual retrieval also works
       const singleRun = await storage.getJobRun(runId);
@@ -409,7 +409,7 @@ describe('SQLiteJobStorage', () => {
       expect(singleRun?.finishedAt?.getTime()).toBe(runData.finishedAt.getTime());
       expect(singleRun?.attempt).toBe(runData.attempt);
       expect(singleRun?.error).toBe(runData.error);
-      expect(singleRun?.error_stack).toBe(runData.error_stack);
+      expect(singleRun?.errorStack).toBe(runData.errorStack);
     });
 
     it('should update job run correctly', async () => {
@@ -438,7 +438,7 @@ describe('SQLiteJobStorage', () => {
         finishedAt: new Date(now.getTime() + 5000), // 5 seconds after start
         attempt: 2,
         error: 'Updated error message',
-        error_stack: 'Error: Updated error message\n    at UpdatedFunction (/updated.ts:1:1)',
+        errorStack: 'Error: Updated error message\n    at UpdatedFunction (/updated.ts:1:1)',
       };
 
       await vi.advanceTimersByTimeAsync(1000);
@@ -453,7 +453,7 @@ describe('SQLiteJobStorage', () => {
       expect(run?.finishedAt?.getTime()).toBe(updates.finishedAt.getTime());
       expect(run?.attempt).toBe(updates.attempt);
       expect(run?.error).toBe(updates.error);
-      expect(run?.error_stack).toBe(updates.error_stack);
+      expect(run?.errorStack).toBe(updates.errorStack);
 
       // Verify unchanged fields
       expect(run?.id).toBe(runId);
@@ -473,14 +473,14 @@ describe('SQLiteJobStorage', () => {
       await storage.updateJobRun(runId, {
         status: 'failed',
         error: error.message,
-        error_stack: error.stack,
+        errorStack: error.stack,
         finishedAt: new Date(),
       });
 
       const runs = await storage.listJobRuns(jobId);
       expect(runs[0].status).toBe('failed');
       expect(runs[0].error).toBe(error.message);
-      expect(runs[0].error_stack).toBe(error.stack);
+      expect(runs[0].errorStack).toBe(error.stack);
     });
 
     it('should handle multiple runs for a single job', async () => {

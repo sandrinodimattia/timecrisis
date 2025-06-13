@@ -350,7 +350,7 @@ export class SQLiteJobStorage implements JobStorage {
       execution_duration: newRun.executionDuration,
       attempt: newRun.attempt,
       error: newRun.error ?? null,
-      error_stack: newRun.error_stack ?? null,
+      error_stack: newRun.errorStack ?? null,
     });
 
     return newRun.id;
@@ -387,7 +387,7 @@ export class SQLiteJobStorage implements JobStorage {
       execution_duration: updatedRun.executionDuration,
       attempt: updatedRun.attempt,
       error: updatedRun.error ?? null,
-      error_stack: updatedRun.error_stack ?? null,
+      error_stack: updatedRun.errorStack ?? null,
     });
   }
 
@@ -1050,7 +1050,7 @@ export class SQLiteJobStorage implements JobStorage {
       executionDuration: row.execution_duration,
       attempt: row.attempt,
       error: row.error ?? undefined,
-      error_stack: row.error_stack ?? undefined,
+      errorStack: row.error_stack ?? undefined,
     });
   }
 

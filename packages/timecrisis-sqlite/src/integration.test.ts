@@ -91,7 +91,7 @@ describe('SQLite Integration Tests', () => {
       expect(jobRuns[0].startedAt).toBeInstanceOf(Date);
       expect(jobRuns[0].finishedAt).toBeInstanceOf(Date);
       expect(jobRuns[0].error).toBeUndefined();
-      expect(jobRuns[0].error_stack).toBeUndefined();
+      expect(jobRuns[0].errorStack).toBeUndefined();
       expect(jobRuns[0].progress).toBe(100);
     });
 

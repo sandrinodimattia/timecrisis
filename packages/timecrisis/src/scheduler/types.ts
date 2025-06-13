@@ -182,6 +182,11 @@ export interface EnqueueOptions {
   maxRetries?: number;
 
   /**
+   * Strategy for calculating retry delays.
+   **/
+  backoffStrategy?: 'exponential' | 'linear';
+
+  /**
    * Priority of the job (1 to 100, lower is more important).
    **/
   priority?: number;
@@ -205,11 +210,6 @@ export interface EnqueueOptions {
    * How long until the job expires (alternative to expiresAt).
    **/
   expiresIn?: string;
-
-  /**
-   * Strategy for calculating retry delays.
-   **/
-  backoffStrategy?: 'exponential' | 'linear';
 }
 
 /**
@@ -292,6 +292,16 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
    * Function to process the job.
    */
   handle: (data: z.infer<T>, ctx: JobContext) => Promise<void>;
+
+  /**
+   * Maximum number of retries before moving to dead letter queue.
+   **/
+  maxRetries?: number;
+
+  /**
+   * Strategy for calculating retry delays.
+   **/
+  backoffStrategy?: 'exponential' | 'linear';
 
   /**
    * Maximum number of concurrent executions.

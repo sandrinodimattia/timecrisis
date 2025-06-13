@@ -57,7 +57,7 @@ export const JobRunSchema = z.object({
   /**
    * Error stack trace if run failed.
    */
-  error_stack: z.string().nullable().optional(),
+  errorStack: z.string().nullable().optional(),
 });
 
 /**

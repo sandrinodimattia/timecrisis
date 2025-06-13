@@ -122,7 +122,7 @@ describe('ExpiredJobsTask', () => {
       status: 'failed',
       finishedAt: new Date(),
       error: expect.stringMatching('lock expired'),
-      error_stack: expect.stringMatching('lock expired'),
+      errorStack: expect.stringMatching('lock expired'),
       executionDuration: 400000,
     });
 
@@ -178,7 +178,7 @@ describe('ExpiredJobsTask', () => {
       status: 'failed',
       finishedAt: new Date(),
       error: expect.stringMatching('lock expired'),
-      error_stack: expect.stringMatching('lock expired'),
+      errorStack: expect.stringMatching('lock expired'),
       executionDuration: 400000,
     });
 
@@ -406,7 +406,7 @@ describe('ExpiredJobsTask', () => {
       finishedAt: new Date(),
       executionDuration: 400000,
       error: expect.stringMatching('lock expired'),
-      error_stack: expect.stringMatching('lock expired'),
+      errorStack: expect.stringMatching('lock expired'),
     });
   });
 
@@ -452,7 +452,7 @@ describe('ExpiredJobsTask', () => {
       finishedAt: new Date(),
       error: expect.stringMatching('lock expired'),
       executionDuration: 400000,
-      error_stack: expect.stringMatching('lock expired'),
+      errorStack: expect.stringMatching('lock expired'),
     });
 
     // Verify job was unlocked
@@ -621,7 +621,7 @@ describe('ExpiredJobsTask', () => {
         status: 'failed',
         finishedAt: new Date(),
         error: expect.stringMatching('lock expired'),
-        error_stack: expect.stringMatching('lock expired'),
+        errorStack: expect.stringMatching('lock expired'),
         executionDuration: 398000,
       });
 

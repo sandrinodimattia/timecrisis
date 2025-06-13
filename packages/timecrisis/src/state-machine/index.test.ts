@@ -600,5 +600,48 @@ stores.forEach(({ name, store }) => {
         });
       });
     });
+
+    describe('job options overrides', () => {
+      it('should override job definition options when enqueueing', async () => {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
+          maxRetries: 5,
+          priority: 10,
+          backoffStrategy: 'exponential',
+          expiresAt: new Date(Date.now() + 3600000), // 1 hour from now
+        });
+
+        const job = await jobStore.getJob(jobId);
+        expect(job).toMatchObject({
+          maxRetries: 5,
+          priority: 10,
+          backoffStrategy: 'exponential',
+          expiresAt: expect.any(Date),
+        });
+      });
+
+      it('should use job definition defaults when options not provided', async () => {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
+
+        const job = await jobStore.getJob(jobId);
+        expect(job).toMatchObject({
+          maxRetries: 0, // Default from JobSchema
+          priority: 10, // Default from JobSchema
+          backoffStrategy: 'exponential', // Default from JobSchema
+        });
+      });
+
+      it('should handle referenceId and scheduledJobId options', async () => {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
+          referenceId: 'test-ref-123',
+          scheduledJobId: 'test-schedule-456',
+        });
+
+        const job = await jobStore.getJob(jobId);
+        expect(job).toMatchObject({
+          referenceId: 'test-ref-123',
+          scheduledJobId: 'test-schedule-456',
+        });
+      });
+    });
   });
 });

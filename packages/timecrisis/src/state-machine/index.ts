@@ -107,12 +107,12 @@ export class JobStateMachine {
     const jobId = await this.cfg.storage.createJob({
       type,
       data: validData,
-      maxRetries: options.maxRetries,
+      maxRetries: options.maxRetries ?? job.maxRetries,
       priority: options.priority ?? job.priority,
       referenceId: options.referenceId,
       scheduledJobId: options.scheduledJobId,
       expiresAt,
-      backoffStrategy: options.backoffStrategy,
+      backoffStrategy: options.backoffStrategy ?? job.backoffStrategy,
     });
 
     return jobId;
@@ -296,7 +296,7 @@ export class JobStateMachine {
         job: job.id,
         type: job.type,
         error: errorMessage,
-        error_stack: errorStack,
+        errorStack: errorStack,
         attempts: attempts,
         maxRetries: job.maxRetries,
       });
@@ -343,7 +343,7 @@ export class JobStateMachine {
         executionDuration,
         finishedAt: now,
         error: errorMessage,
-        error_stack: errorStack,
+        errorStack: errorStack,
       });
     }
   }
