@@ -142,6 +142,41 @@ interface JobContext {
 }
 ```
 
+### Job Hooks
+
+Time Crisis provides several hooks that you can use to monitor and react to job lifecycle events. These hooks are configured when creating the scheduler:
+
+```typescript
+const scheduler = new JobScheduler({
+  storage: new InMemoryJobStorage(),
+  logger: new PinoLogger(),
+  // ... other config options ...
+
+  // Called when a job starts running
+  onJobStarted: (job) => {
+    console.log(`Job ${job.id} of type ${job.type} started running`);
+  },
+
+  // Called when a job completes successfully
+  onJobCompleted: (job) => {
+    console.log(`Job ${job.id} of type ${job.type} completed successfully`);
+  },
+
+  // Called when a job fails (either for a retry or permanently)
+  onJobFailed: (job, error) => {
+    console.error(`Job ${job.id} of type ${job.type} failed:`, error);
+  },
+});
+```
+
+These hooks are useful for:
+
+- Monitoring job execution
+- Integrating with external monitoring systems
+- Triggering notifications
+- Collecting metrics
+- Debugging job issues
+
 ### Fork Mode
 
 For CPU-intensive or risky jobs, run them in a separate process:
