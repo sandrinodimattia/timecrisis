@@ -411,15 +411,15 @@ describe('InMemoryJobStorage', () => {
     test('should handle concurrent operations using transaction queue', async () => {
       const results: string[] = [];
       const operations = [
-        storage.transaction(async () => {
+        storage.transaction(() => {
           results.push('1');
           return '1';
         }),
-        storage.transaction(async () => {
+        storage.transaction(() => {
           results.push('2');
           return '2';
         }),
-        storage.transaction(async () => {
+        storage.transaction(() => {
           results.push('3');
           return '3';
         }),

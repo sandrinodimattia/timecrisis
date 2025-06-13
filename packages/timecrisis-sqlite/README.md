@@ -179,21 +179,6 @@ try {
 }
 ```
 
-### Transactions
-
-All operations use transactions for consistency:
-
-```typescript
-await storage.transaction(async (trx) => {
-  const jobId = await storage.createJob(job);
-  await storage.createJobLog({
-    jobId,
-    level: 'info',
-    message: 'Job created',
-  });
-});
-```
-
 ## Performance Tips
 
 WAL Configuration:

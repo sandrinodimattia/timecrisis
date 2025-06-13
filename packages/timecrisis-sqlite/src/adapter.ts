@@ -641,7 +641,7 @@ export class SQLiteJobStorage implements JobStorage {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlMs);
 
-    return this.transaction(async () => {
+    return this.transaction(() => {
       // Create new lock
       const res = this.stmtInsertLock.run({
         id: lockId,
@@ -666,7 +666,7 @@ export class SQLiteJobStorage implements JobStorage {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + ttlMs);
 
-    return this.transaction(async () => {
+    return this.transaction(() => {
       // Update lock expiry
       const res = this.stmtUpdateLock.run({
         lockId,
@@ -686,7 +686,7 @@ export class SQLiteJobStorage implements JobStorage {
    * @returns True if the lock was released, false otherwise
    */
   async releaseLock(lockId: string, worker: string): Promise<boolean> {
-    return this.transaction(async () => {
+    return this.transaction(() => {
       const result = this.stmtDeleteLock.run({
         id: lockId,
         worker,
@@ -795,7 +795,7 @@ export class SQLiteJobStorage implements JobStorage {
    */
   async acquireTypeSlot(jobType: string, worker: string, maxConcurrent: number): Promise<boolean> {
     try {
-      const result = await this.transaction(async () => {
+      const result = this.transaction(() => {
         // Get total slots used for this job type
         const totalSlots = this.stmtGetTotalRunningJobsByType.get(jobType) as { total: number };
         if (totalSlots.total >= maxConcurrent) {
@@ -829,7 +829,7 @@ export class SQLiteJobStorage implements JobStorage {
    * @param worker - The worker releasing the slot
    */
   async releaseTypeSlot(jobType: string, worker: string): Promise<void> {
-    return this.transaction(async () => {
+    return this.transaction(() => {
       // Decrement the slot count
       this.stmtDecrementTypeSlot.run({
         job_type: jobType,
@@ -846,7 +846,7 @@ export class SQLiteJobStorage implements JobStorage {
    * @param worker - The worker to release all slots for
    */
   async releaseAllTypeSlots(worker: string): Promise<void> {
-    return this.transaction(async () => {
+    return this.transaction(() => {
       this.stmtDeleteWorkerTypeSlots.run(worker);
     });
   }
