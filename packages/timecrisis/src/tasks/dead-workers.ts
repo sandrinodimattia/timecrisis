@@ -133,6 +133,8 @@ export class DeadWorkersTask {
             .filter((l) => isJobLock(l.lockId))
             .map((l) => getJobId(l.lockId) as string)) {
             const job = await this.cfg.storage.getJob(jobId);
+
+            // We only need to fail running jobs, pending jobs will be handled by the expired jobs task.
             if (job && job.status === JobState.Running) {
               // Get the current job run
               const runs = await this.cfg.storage.listJobRuns(job.id);
