@@ -118,8 +118,8 @@ describe('ExpiredJobsTask', () => {
     expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
       status: 'failed',
       finishedAt: new Date(),
-      error: 'Job lock expired (expiresAt=2025-01-01T09:02:00.000Z)',
-      error_stack: undefined,
+      error: expect.stringMatching('lock expired'),
+      error_stack: expect.stringMatching('lock expired'),
       executionDuration: 400000,
     });
 
@@ -174,15 +174,15 @@ describe('ExpiredJobsTask', () => {
     expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
       status: 'failed',
       finishedAt: new Date(),
-      error: 'Job lock expired (expiresAt=2025-01-01T09:02:00.000Z)',
-      error_stack: undefined,
+      error: expect.stringMatching('lock expired'),
+      error_stack: expect.stringMatching('lock expired'),
       executionDuration: 400000,
     });
 
     expect(storage.updateJob).toHaveBeenCalledWith(jobId, {
       status: 'failed',
       finishedAt: expect.any(Date),
-      failReason: 'Job lock expired (expiresAt=2025-01-01T09:02:00.000Z)',
+      failReason: expect.stringMatching('lock expired at'),
       failCount: 2,
     });
 
@@ -210,7 +210,7 @@ describe('ExpiredJobsTask', () => {
 
     expect(storage.updateJob).toHaveBeenCalledWith(jobId, {
       status: 'failed',
-      failReason: expect.stringMatching('Job expired'),
+      failReason: expect.stringMatching('expired at'),
       finishedAt: expect.any(Date),
       failCount: 2,
     });
@@ -367,7 +367,7 @@ describe('ExpiredJobsTask', () => {
     // Second job should be failed due to expiration
     expect(storage.updateJob).toHaveBeenCalledWith(job2Id, {
       status: 'failed',
-      failReason: expect.stringMatching('Job expired'),
+      failReason: expect.stringMatching('expired at'),
       failCount: 1,
       finishedAt: new Date(),
     });
@@ -377,8 +377,8 @@ describe('ExpiredJobsTask', () => {
       status: 'failed',
       finishedAt: new Date(),
       executionDuration: 400000,
-      error: expect.stringMatching('Job lock expired'),
-      error_stack: undefined,
+      error: expect.stringMatching('lock expired'),
+      error_stack: expect.stringMatching('lock expired'),
     });
   });
 
@@ -422,9 +422,9 @@ describe('ExpiredJobsTask', () => {
     expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
       status: 'failed',
       finishedAt: new Date(),
-      error: expect.stringMatching('Job lock expired'),
+      error: expect.stringMatching('lock expired'),
       executionDuration: 400000,
-      errorStack: undefined,
+      error_stack: expect.stringMatching('lock expired'),
     });
 
     // Verify job was unlocked
@@ -437,7 +437,7 @@ describe('ExpiredJobsTask', () => {
       status: 'failed',
       failCount: 2,
       finishedAt: new Date(),
-      failReason: expect.stringMatching('Job expired'),
+      failReason: expect.stringMatching('expired at'),
     });
   });
 
@@ -592,8 +592,8 @@ describe('ExpiredJobsTask', () => {
       expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
         status: 'failed',
         finishedAt: new Date(),
-        error: expect.stringMatching('Job lock expired'),
-        error_stack: undefined,
+        error: expect.stringMatching('lock expired'),
+        error_stack: expect.stringMatching('lock expired'),
         executionDuration: 398000,
       });
 

@@ -1,8 +1,9 @@
 import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
+import { WorkerTerminatedError } from '../scheduler/types.js';
 import { LeaderElection } from '../concurrency/leader-election.js';
-import { formatLockName, getJobId, isJobLock } from '../concurrency/job-lock.js';
 import { JobState, JobStateMachine } from '../state-machine/index.js';
+import { formatLockName, getJobId, isJobLock } from '../concurrency/job-lock.js';
 
 interface DeadWorkersTaskConfig {
   /**
@@ -138,11 +139,16 @@ export class DeadWorkersTask {
               const currentRun = runs.find((r) => r.status === JobState.Running);
 
               // Fail.
+              const err = new WorkerTerminatedError(
+                `Worker which was running the task is no longer active`
+              );
               await this.cfg.stateMachine.fail(
                 job,
                 currentRun?.id,
                 true,
-                'Worker which was running the task is no longer active'
+                err,
+                err.message,
+                err.stack
               );
             }
 

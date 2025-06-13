@@ -3,6 +3,7 @@ import { JobStorage } from '../storage/types.js';
 import { JobStateMachine } from '../state-machine/index.js';
 import { LeaderElection } from '../concurrency/leader-election.js';
 import { getJobId, isJobLock } from '../concurrency/job-lock.js';
+import { JobExpiredError, JobLockExpiredError } from '../scheduler/types.js';
 
 interface ExpiredJobsTaskConfig {
   /**
@@ -111,12 +112,10 @@ export class ExpiredJobsTask {
               // Fail the job.
               const job = await this.cfg.storage.getJob(getJobId(lock.lockId)!);
               if (job) {
-                await this.cfg.stateMachine.fail(
-                  job,
-                  undefined,
-                  true,
-                  `Job lock expired (expiresAt=${lock.expiresAt.toISOString()})`
+                const err = new JobLockExpiredError(
+                  `Job "${job.id}" lock expired at ${lock.expiresAt.toISOString()}`
                 );
+                await this.cfg.stateMachine.fail(job, undefined, true, err, err.message, err.stack);
               }
 
               // Delete the lock.
@@ -144,12 +143,10 @@ export class ExpiredJobsTask {
           // Check job expiration - no retry for expired jobs.
           if (job.expiresAt && job.expiresAt < now) {
             // Fail the job.
-            await this.cfg.stateMachine.fail(
-              job,
-              undefined,
-              false,
-              `Job expired (expiresAt=${job.expiresAt.toISOString()})`
+            const err = new JobExpiredError(
+              `Job "${job.id}" expired at ${job.expiresAt.toISOString()}`
             );
+            await this.cfg.stateMachine.fail(job, undefined, false, err, err.message, err.stack);
           }
         } catch (err) {
           this.logger.error('Error processing expired job', {

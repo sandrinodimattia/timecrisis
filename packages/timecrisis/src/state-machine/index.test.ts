@@ -87,7 +87,7 @@ stores.forEach(({ name, store }) => {
         const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         const job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, false, 'Test error');
+        await stateMachine.fail(job!, jobRunId, false, new Error('Test error'), 'Test error');
 
         const updatedJob = await jobStore.getJob(jobId);
         expect(updatedJob?.status).toBe(JobState.Failed);
@@ -102,7 +102,7 @@ stores.forEach(({ name, store }) => {
         const { jobRunId } = await stateMachine.start(job!);
 
         job = await jobStore.getJob(jobId);
-        await stateMachine.fail(job!, jobRunId, true, 'Test error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Test error'), 'Test error');
 
         const updatedJob = await jobStore.getJob(jobId);
         expect(updatedJob?.status).toBe(JobState.Pending);
@@ -152,7 +152,7 @@ stores.forEach(({ name, store }) => {
 
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, true, 'Test error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Test error'), 'Test error');
 
         job = await jobStore.getJob(jobId);
         await stateMachine.start(job!);
@@ -200,7 +200,13 @@ stores.forEach(({ name, store }) => {
         const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, false, 'Test failure reason');
+        await stateMachine.fail(
+          job!,
+          jobRunId,
+          false,
+          new Error('Test failure reason'),
+          'Test failure reason'
+        );
 
         const jobRun = await jobStore.getJobRun(job!.id, jobRunId);
         expect(jobRun).toMatchObject({
@@ -223,12 +229,12 @@ stores.forEach(({ name, store }) => {
         // First attempt
         let job = await jobStore.getJob(jobId);
         const { jobRunId: firstRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, firstRunId, true, 'First error');
+        await stateMachine.fail(job!, firstRunId, true, new Error('First error'), 'First error');
 
         // Second attempt
         job = await jobStore.getJob(jobId);
         const { jobRunId: secondRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, secondRunId, true, 'Second error');
+        await stateMachine.fail(job!, secondRunId, true, new Error('Second error'), 'Second error');
 
         const runs = await jobStore.listJobRuns(jobId);
         expect(runs).toHaveLength(2);
@@ -311,7 +317,7 @@ stores.forEach(({ name, store }) => {
           message: 'First run failed',
           timestamp: new Date(),
         });
-        await stateMachine.fail(job!, firstRunId, true, 'First error');
+        await stateMachine.fail(job!, firstRunId, true, new Error('First error'), 'First error');
 
         // Second run
         job = await jobStore.getJob(jobId);
@@ -353,17 +359,17 @@ stores.forEach(({ name, store }) => {
         // First attempt
         let job = await jobStore.getJob(jobId);
         let { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, true, 'First error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('First error'), 'First error');
 
         // Second attempt
         job = await jobStore.getJob(jobId);
         jobRunId = (await stateMachine.start(job!)).jobRunId;
-        await stateMachine.fail(job!, jobRunId, true, 'Second error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Second error'), 'Second error');
 
         // Third attempt (should go to dead letter)
         job = await jobStore.getJob(jobId);
         jobRunId = (await stateMachine.start(job!)).jobRunId;
-        await stateMachine.fail(job!, jobRunId, true, 'Third error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Third error'), 'Third error');
 
         job = await jobStore.getJob(jobId);
         expect(job).toMatchObject({
@@ -381,7 +387,7 @@ stores.forEach(({ name, store }) => {
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
-        await stateMachine.fail(job!, jobRunId, false, 'Fatal error');
+        await stateMachine.fail(job!, jobRunId, false, new Error('Fatal error'), 'Fatal error');
 
         job = await jobStore.getJob(jobId);
         expect(job).toMatchObject({
@@ -409,7 +415,7 @@ stores.forEach(({ name, store }) => {
           message: 'First attempt failed',
           timestamp: new Date(),
         });
-        await stateMachine.fail(job!, jobRunId, true, 'First error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('First error'), 'First error');
 
         // Second attempt (will go to dead letter)
         job = await jobStore.getJob(jobId);
@@ -421,7 +427,7 @@ stores.forEach(({ name, store }) => {
           message: 'Second attempt failed',
           timestamp: new Date(),
         });
-        await stateMachine.fail(job!, jobRunId, true, 'Second error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Second error'), 'Second error');
 
         // Verify final state
         job = await jobStore.getJob(jobId);
@@ -452,7 +458,7 @@ stores.forEach(({ name, store }) => {
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
-        await stateMachine.fail(job!, jobRunId, false, 'Fatal error');
+        await stateMachine.fail(job!, jobRunId, false, new Error('Fatal error'), 'Fatal error');
 
         job = await jobStore.getJob(jobId);
         await expect(stateMachine.start(job!)).rejects.toThrow(InvalidStateTransitionError);
@@ -499,7 +505,13 @@ stores.forEach(({ name, store }) => {
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
 
-        await stateMachine.fail(job!, jobRunId, false, 'Test failure reason');
+        await stateMachine.fail(
+          job!,
+          jobRunId,
+          false,
+          new Error('Test failure reason'),
+          'Test failure reason'
+        );
 
         job = await jobStore.getJob(jobId);
         expect(job).toMatchObject({
@@ -535,7 +547,7 @@ stores.forEach(({ name, store }) => {
 
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, true, 'Test error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Test Error'), 'Test error');
 
         job = await jobStore.getJob(jobId);
         expect(job).toMatchObject({
@@ -554,7 +566,7 @@ stores.forEach(({ name, store }) => {
 
         let job = await jobStore.getJob(jobId);
         const { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, true, 'Test error');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Test Error'), 'Test error');
 
         job = await jobStore.getJob(jobId);
         expect(job).toMatchObject({
@@ -572,12 +584,12 @@ stores.forEach(({ name, store }) => {
 
         // First attempt
         let { jobRunId } = await stateMachine.start(job!);
-        await stateMachine.fail(job!, jobRunId, true, 'Error 1');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Error 1'), 'Error 1');
 
         // Second attempt
         job = await jobStore.getJob(jobId);
         jobRunId = (await stateMachine.start(job!)).jobRunId;
-        await stateMachine.fail(job!, jobRunId, true, 'Error 2');
+        await stateMachine.fail(job!, jobRunId, true, new Error('Error 2'), 'Error 2');
 
         const runs = await jobStore.listJobRuns(jobId);
         expect(runs.length).toBe(2);
