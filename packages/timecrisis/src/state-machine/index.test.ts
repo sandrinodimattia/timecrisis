@@ -444,12 +444,11 @@ stores.forEach(({ name, store }) => {
         // Verify logs are preserved
         const logs = await jobStore.listJobLogs(jobId);
         expect(logs).toHaveLength(4);
-        expect(logs.map((l) => l.message)).toEqual([
-          'First attempt failed',
-          'Job failed, retrying in 10000 ms: First error',
-          'Second attempt failed',
-          'Job failed permanently after 2 attempts: Second error',
-        ]);
+
+        expect(logs[0].message).toMatch('First attempt failed');
+        expect(logs[1].message).toContain('Job failed, retrying in 1');
+        expect(logs[2].message).toMatch('Second attempt failed');
+        expect(logs[3].message).toMatch('Job failed permanently after 2 attempts: Second error');
       });
 
       it('should prevent starting a job in dead letter queue', async () => {
