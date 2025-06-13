@@ -1,4 +1,4 @@
-import * as cronParser from 'cron-parser';
+import cronParser from 'cron-parser';
 
 import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
@@ -146,6 +146,17 @@ export class ScheduledJobsTask {
             continue;
           }
 
+          // For cron jobs, check if we should run based on lastScheduledAt
+          if (job.scheduleType === 'cron' && job.lastScheduledAt && job.lastScheduledAt > now) {
+            this.logger.debug('Skipping job because lastScheduledAt is in the future', {
+              jobId: job.id,
+              type: job.type,
+              lastScheduledAt: job.lastScheduledAt,
+              now,
+            });
+            continue;
+          }
+
           this.logger.info('Enqueing job', {
             jobId: job.id,
             type: job.type,
@@ -213,8 +224,14 @@ export class ScheduledJobsTask {
         return new Date(fromDate.getTime() + interval);
       }
       case 'cron': {
+        // Use the highest date between lastScheduledAt and fromDate as the base
+        // This ensures we don't run multiple times if lastScheduledAt is more recent,
+        // and we don't miss runs if the system time was adjusted backwards
+        const baseDate =
+          job.lastScheduledAt && job.lastScheduledAt > fromDate ? job.lastScheduledAt : fromDate;
+
         const interval = cronParser.parseExpression(job.scheduleValue, {
-          currentDate: fromDate,
+          currentDate: baseDate,
           tz: job.timeZone || 'UTC',
         });
 

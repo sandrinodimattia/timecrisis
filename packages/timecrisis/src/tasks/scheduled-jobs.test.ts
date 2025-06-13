@@ -307,4 +307,150 @@ describe('ScheduledJobsTask', () => {
       await vi.advanceTimersByTimeAsync(minute * 60000);
     }
   });
+
+  it('should only run cron job once per scheduled time even with quick execution', async () => {
+    const scheduledJobId = await storage.createScheduledJob({
+      name: 'Job 1',
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      enabled: true,
+      scheduleType: 'cron',
+      scheduleValue: '*/1 * * * *', // Run every minute
+      nextRunAt: now,
+    });
+
+    // First execution
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
+      lastScheduledAt: expect.any(Date),
+      nextRunAt: expect.any(Date),
+    });
+
+    // Clear mocks
+    vi.clearAllMocks();
+
+    // Try to execute again immediately (simulating quick execution)
+    await task.execute();
+
+    // Should not have executed again
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Advance time to just before the next scheduled run
+    await vi.advanceTimersByTimeAsync(59000); // 59 seconds
+
+    // Try to execute again
+    await task.execute();
+
+    // Should not have executed yet
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Advance time to the next minute
+    await vi.advanceTimersByTimeAsync(1000); // 1 second
+
+    // Now it should execute
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
+      lastScheduledAt: expect.any(Date),
+      nextRunAt: expect.any(Date),
+    });
+  });
+
+  it('should handle cron jobs with specific minute scheduling', async () => {
+    const scheduledJobId = await storage.createScheduledJob({
+      name: 'Job 1',
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      enabled: true,
+      scheduleType: 'cron',
+      scheduleValue: '29 * * * *', // Run at minute 29 of every hour
+      nextRunAt: now,
+    });
+
+    // First execution
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    const firstUpdate = vi.mocked(storage.updateScheduledJob).mock.calls[0][1];
+    const nextRun = firstUpdate.nextRunAt;
+    expect(nextRun).toBeDefined();
+
+    // Clear mocks
+    vi.clearAllMocks();
+
+    // Try to execute again immediately
+    await task.execute();
+
+    // Should not have executed again
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Advance time to the next scheduled minute (29)
+    const nextMinute = new Date(nextRun!);
+    await vi.advanceTimersByTimeAsync(nextMinute.getTime() - Date.now());
+
+    // Now it should execute
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
+      lastScheduledAt: expect.any(Date),
+      nextRunAt: expect.any(Date),
+    });
+  });
+
+  it('should use the highest date between lastScheduledAt and current time', async () => {
+    const scheduledJobId = await storage.createScheduledJob({
+      name: 'Job 1',
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      enabled: true,
+      scheduleType: 'cron',
+      scheduleValue: '*/1 * * * *', // Run every minute
+      nextRunAt: now,
+      lastScheduledAt: new Date(now.getTime() + 30000), // 30 seconds in the future
+    });
+
+    // First execution - should not run because lastScheduledAt is in the future
+    await task.execute();
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Clear mocks
+    vi.clearAllMocks();
+
+    // Advance time past lastScheduledAt
+    await vi.advanceTimersByTimeAsync(31000); // 31 seconds
+
+    // Now it should execute
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
+      lastScheduledAt: expect.any(Date),
+      nextRunAt: expect.any(Date),
+    });
+
+    // Get the last scheduled time from the mock
+    const lastUpdate = vi.mocked(storage.updateScheduledJob).mock.calls[0][1];
+    const lastScheduledAt = lastUpdate.lastScheduledAt;
+    expect(lastScheduledAt).toBeDefined();
+
+    // Clear mocks
+    vi.clearAllMocks();
+
+    // Simulate system time going backwards by setting it to before lastScheduledAt
+    const pastDate = new Date(lastScheduledAt!.getTime() - 1000); // 1 second before lastScheduledAt
+    vi.setSystemTime(pastDate);
+
+    // Try to execute again
+    await task.execute();
+
+    // Should not have executed because we're using the lastScheduledAt time
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Reset system time
+    vi.useRealTimers();
+  });
 });
