@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { Logger } from '../logger/index.js';
 import { Job } from '../storage/schemas/job.js';
 import { parseDuration } from '../lib/duration.js';
 import { InvalidStateTransitionError, StateMachineConfig } from './types.js';
@@ -60,9 +61,11 @@ const transitions: TransitionTable = {
  */
 export class JobStateMachine {
   private cfg: StateMachineConfig;
+  private logger: Logger;
 
   constructor(config: StateMachineConfig) {
     this.cfg = config;
+    this.logger = config.logger.child('state-machine');
   }
 
   /**
@@ -115,40 +118,44 @@ export class JobStateMachine {
   }
 
   async start(job: Job): Promise<{ jobRunId: string; attempt: number }> {
-    return this.cfg.storage.transaction(async () => {
-      const nextState = this.validateTransition(job.status as JobState, JobEvent.Start);
+    const nextState = this.validateTransition(job.status as JobState, JobEvent.Start);
 
-      const now = new Date();
-      job.status = nextState;
-      job.startedAt = now;
+    const now = new Date();
+    job.status = nextState;
+    job.startedAt = now;
 
-      // Update job status to running.
-      await this.cfg.storage.updateJob(job.id, {
-        status: job.status,
-        startedAt: job.startedAt,
-      });
-
-      // Get the previous job runs if any.
-      const jobRuns = await this.cfg.storage.listJobRuns(job.id);
-
-      // Create a new job run.
-      const jobRunId = await this.cfg.storage.createJobRun({
-        jobId: job.id,
-        status: JobState.Running,
-        startedAt: now,
-        attempt: jobRuns.length + 1,
-      });
-
-      this.cfg.logger.debug(`Starting job`, {
-        jobId: job.id,
-        jobRunId: jobRunId,
-        type: job.type,
-        attempt: jobRuns.length + 1,
-        maxAttempts: job.maxRetries,
-      });
-
-      return { jobRunId, attempt: jobRuns.length + 1 };
+    // Update job status to running.
+    await this.cfg.storage.updateJob(job.id, {
+      status: job.status,
+      startedAt: job.startedAt,
     });
+
+    // Get the previous job runs if any.
+    const jobRuns = await this.cfg.storage.listJobRuns(job.id);
+
+    // Create a new job run.
+    const jobRunId = await this.cfg.storage.createJobRun({
+      jobId: job.id,
+      status: JobState.Running,
+      startedAt: now,
+      attempt: jobRuns.length + 1,
+    });
+
+    this.logger.debug(`Starting job`, {
+      jobId: job.id,
+      jobRunId: jobRunId,
+      type: job.type,
+      attempt: jobRuns.length + 1,
+      maxAttempts: job.maxRetries,
+    });
+
+    try {
+      this.cfg.onJobStarted?.(job.type, job.id, jobRunId, jobRuns.length + 1);
+    } catch {
+      // Swallow error.
+    }
+
+    return { jobRunId, attempt: jobRuns.length + 1 };
   }
 
   /**
@@ -157,33 +164,120 @@ export class JobStateMachine {
    * @param jobRunId Job run ID
    */
   async complete(job: Job, jobRunId: string): Promise<void> {
-    await this.cfg.storage.transaction(async () => {
-      const nextState = this.validateTransition(job.status as JobState, JobEvent.Complete);
+    const nextState = this.validateTransition(job.status as JobState, JobEvent.Complete);
 
-      // Get the active job run.
-      const jobRuns = await this.cfg.storage.listJobRuns(job.id);
-      const jobRun = jobRuns.find((jr) => jr.id === jobRunId)!;
-      const executionDuration = new Date().getTime() - jobRun.startedAt.getTime();
+    // Get the active job run.
+    const jobRuns = await this.cfg.storage.listJobRuns(job.id);
+    const jobRun = jobRuns.find((jr) => jr.id === jobRunId)!;
+    const executionDuration = new Date().getTime() - jobRun.startedAt.getTime();
 
-      this.cfg.logger.debug(`Setting job run to completed`, {
-        jobId: job.id,
-        jobRunId: jobRunId,
-        status: nextState,
+    this.logger.debug(`Setting job run to completed`, {
+      jobId: job.id,
+      jobRunId: jobRunId,
+      status: nextState,
+      executionDuration,
+    });
+
+    // Mark success.
+    await this.cfg.storage.updateJob(job.id, {
+      status: nextState,
+      finishedAt: new Date(),
+    });
+
+    // Mark success.
+    await this.cfg.storage.updateJobRun(jobRunId, {
+      status: JobState.Completed,
+      executionDuration,
+      progress: 100,
+      finishedAt: new Date(),
+    });
+
+    /**
+     * Create a log entry.
+     */
+    await this.cfg.storage.createJobLog({
+      jobId: job.id,
+      jobRunId: jobRunId,
+      level: 'info',
+      message: `Job completed successfully`,
+      timestamp: new Date(),
+    });
+
+    try {
+      this.cfg.onJobCompleted?.(job.type, job.id, jobRunId);
+    } catch {
+      // Swallow error.
+    }
+  }
+
+  /**
+   * Move job to failed state
+   */
+  async fail(
+    job: Job,
+    jobRunId: string | undefined,
+    canRetry: boolean,
+    error: Error,
+    errorMessage: string,
+    errorStack?: string
+  ): Promise<void> {
+    this.validateTransition(job.status as JobState, JobEvent.Fail);
+
+    const now = new Date();
+
+    // Get the previous job runs if any.
+    const jobRuns = await this.cfg.storage.listJobRuns(job.id);
+    const jobRun =
+      jobRuns.find((jr) => jr.id === jobRunId) ||
+      jobRuns.find((jr) => jr.status === JobState.Running);
+    const executionDuration = jobRun ? new Date().getTime() - jobRun.startedAt.getTime() : 0;
+
+    this.logger.warn('Job failed', {
+      job: job.id,
+      jobRun: jobRun?.id,
+      type: job.type,
+      error: errorMessage,
+      error_stack: errorStack,
+      executionDuration,
+    });
+
+    try {
+      this.cfg.onJobFailed?.(job.type, job.id, jobRun?.id, error);
+    } catch {
+      // Swallow error.
+    }
+
+    // Check if we should retry
+    const attempts = jobRuns.length;
+    const retries = jobRuns.length - 1;
+    if (canRetry && retries < job.maxRetries) {
+      const nextState = this.validateTransition(job.status as JobState, JobEvent.Enqueue);
+
+      // Calculate backoff delay.
+      let delay = 10000;
+      if (job.backoffStrategy === 'exponential') {
+        const baseDelay = 10000;
+        const exponentialDelay = Math.pow(2, retries) * baseDelay;
+        const jitter = Math.random() * baseDelay * 0.1;
+        delay = Math.min(exponentialDelay + jitter, 24 * 60 * 60 * 1000);
+      }
+      const nextRun = new Date(Date.now() + delay);
+
+      this.logger.warn(`Enqueuing retry for failed job in ${delay} ms`, {
+        job: job.id,
+        type: job.type,
+        error: errorMessage,
         executionDuration,
+        delay,
+        nextRun,
       });
 
-      // Mark success.
+      // Reset the job to pending for retry
       await this.cfg.storage.updateJob(job.id, {
         status: nextState,
-        finishedAt: new Date(),
-      });
-
-      // Mark success.
-      await this.cfg.storage.updateJobRun(jobRunId, {
-        status: JobState.Completed,
-        executionDuration,
-        progress: 100,
-        finishedAt: new Date(),
+        failReason: null,
+        failCount: job.failCount + 1,
+        runAt: nextRun,
       });
 
       /**
@@ -192,141 +286,64 @@ export class JobStateMachine {
       await this.cfg.storage.createJobLog({
         jobId: job.id,
         jobRunId: jobRunId,
-        level: 'info',
-        message: `Job completed successfully`,
+        level: 'warn',
+        message: `Job failed, retrying in ${delay} ms: ${errorMessage}`,
         timestamp: new Date(),
       });
-    });
-  }
-
-  /**
-   * Move job to failed state
-   * @param jobId
-   * @param error
-   */
-  async fail(
-    job: Job,
-    jobRunId: string | undefined,
-    canRetry: boolean,
-    error: string,
-    errorStack?: string
-  ): Promise<void> {
-    return this.cfg.storage.transaction(async () => {
-      this.validateTransition(job.status as JobState, JobEvent.Fail);
-
-      const now = new Date();
-
-      // Get the previous job runs if any.
-      const jobRuns = await this.cfg.storage.listJobRuns(job.id);
-      const jobRun =
-        jobRuns.find((jr) => jr.id === jobRunId) ||
-        jobRuns.find((jr) => jr.status === JobState.Running);
-      const executionDuration = jobRun ? new Date().getTime() - jobRun.startedAt.getTime() : 0;
-
-      this.cfg.logger.warn('Job failed', {
+    } else {
+      this.logger.warn(`Job failed permanently due to error: ${errorMessage}`, {
         job: job.id,
-        jobRun: jobRun?.id,
         type: job.type,
-        error,
+        error: errorMessage,
         error_stack: errorStack,
-        executionDuration,
+        attempts: attempts,
+        maxRetries: job.maxRetries,
       });
 
-      // Check if we should retry
-      const attempts = jobRuns.length;
-      const retries = jobRuns.length - 1;
-      if (canRetry && retries < job.maxRetries) {
-        const nextState = this.validateTransition(job.status as JobState, JobEvent.Enqueue);
+      // Mark as failed if we've exceeded retries
+      await this.cfg.storage.updateJob(job.id, {
+        status: JobState.Failed,
+        failReason: errorMessage,
+        failCount: job.failCount + 1,
+        finishedAt: now,
+      });
 
-        // Calculate backoff delay.
-        let delay = 10000;
-        if (job.backoffStrategy === 'exponential') {
-          delay = Math.min(attempts * delay, 24 * 60 * 60 * 1000); // Max 24 hours
-        }
-        const nextRun = new Date(Date.now() + delay);
+      /**
+       * Create a log entry.
+       */
+      await this.cfg.storage.createJobLog({
+        jobId: job.id,
+        jobRunId: jobRunId,
+        level: 'error',
+        message: `Job failed permanently after ${attempts} attempts: ${errorMessage}`,
+        timestamp: new Date(),
+      });
 
-        this.cfg.logger.warn(`Enqueuing retry for failed job in ${delay} ms`, {
-          job: job.id,
-          type: job.type,
-          error: error,
-          executionDuration,
-          delay,
-          nextRun,
-        });
+      // Move to dead letter queue.
+      await this.cfg.storage.createDeadLetterJob({
+        jobId: job.id,
+        jobType: job.type,
+        data: job.data,
+        failReason: errorMessage,
+        failedAt: new Date(),
+      });
+    }
 
-        // Reset the job to pending for retry
-        await this.cfg.storage.updateJob(job.id, {
-          status: nextState,
-          failReason: null,
-          failCount: job.failCount + 1,
-          runAt: nextRun,
-        });
+    // Update the job run to failed.
+    if (jobRun) {
+      this.logger.debug(`Setting job run to failed: ${errorMessage}`, {
+        job: job.id,
+        jobRun: jobRun.id,
+        status: JobState.Failed,
+      });
 
-        /**
-         * Create a log entry.
-         */
-        await this.cfg.storage.createJobLog({
-          jobId: job.id,
-          jobRunId: jobRunId,
-          level: 'warn',
-          message: `Job failed, retrying in ${delay} ms: ${error}`,
-          timestamp: new Date(),
-        });
-      } else {
-        this.cfg.logger.warn(`Job failed permanently due to error: ${error}`, {
-          job: job.id,
-          type: job.type,
-          error: error,
-          error_stack: errorStack,
-          attempts: attempts,
-          maxRetries: job.maxRetries,
-        });
-
-        // Mark as failed if we've exceeded retries
-        await this.cfg.storage.updateJob(job.id, {
-          status: JobState.Failed,
-          failReason: error,
-          failCount: job.failCount + 1,
-          finishedAt: now,
-        });
-
-        /**
-         * Create a log entry.
-         */
-        await this.cfg.storage.createJobLog({
-          jobId: job.id,
-          jobRunId: jobRunId,
-          level: 'error',
-          message: `Job failed permanently after ${attempts} attempts: ${error}`,
-          timestamp: new Date(),
-        });
-
-        // Move to dead letter queue.
-        await this.cfg.storage.createDeadLetterJob({
-          jobId: job.id,
-          jobType: job.type,
-          data: job.data,
-          failReason: error,
-          failedAt: new Date(),
-        });
-      }
-
-      // Update the job run to failed.
-      if (jobRun) {
-        this.cfg.logger.debug(`Setting job run to failed: ${error}`, {
-          job: job.id,
-          jobRun: jobRun.id,
-          status: JobState.Failed,
-        });
-
-        await this.cfg.storage.updateJobRun(jobRun.id, {
-          status: JobState.Failed,
-          executionDuration,
-          finishedAt: now,
-          error: error,
-          error_stack: errorStack,
-        });
-      }
-    });
+      await this.cfg.storage.updateJobRun(jobRun.id, {
+        status: JobState.Failed,
+        executionDuration,
+        finishedAt: now,
+        error: errorMessage,
+        error_stack: errorStack,
+      });
+    }
   }
 }
