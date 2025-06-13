@@ -197,7 +197,9 @@ export class JobScheduler {
     if (options.scheduleType === 'cron') {
       const cronExpression = options.scheduleValue;
       try {
-        const interval = cronParser.parseExpression(cronExpression);
+        const interval = cronParser.parseExpression(cronExpression, {
+          tz: options.timeZone || 'UTC',
+        });
         nextRunAt = interval.next().toDate();
       } catch {
         throw new InvalidScheduleError(cronExpression, 'cron expression');
@@ -226,6 +228,7 @@ export class JobScheduler {
       type,
       scheduleType: options.scheduleType,
       scheduleValue: options.scheduleValue,
+      timeZone: options.timeZone,
       data: validData,
       enabled: options.enabled ?? true,
       nextRunAt,
