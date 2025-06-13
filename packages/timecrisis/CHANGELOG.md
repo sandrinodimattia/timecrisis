@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.4.0
+
+### Minor Changes
+
+- Allow reusing the same worker name in sqlite
+
 ## 0.3.0
 
 ### Minor Changes

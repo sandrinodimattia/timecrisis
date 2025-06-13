@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.4.0
+
+### Minor Changes
+
+- Allow reusing the same worker name in sqlite
+
+### Patch Changes
+
+- Updated dependencies
+  - @timecrisis/timecrisis@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes
