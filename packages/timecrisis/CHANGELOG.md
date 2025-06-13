@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.12.0
+
+### Minor Changes
+
+- 037e085: feat: track the touched_at on job runs
+
 ## 0.11.0
 
 ### Minor Changes

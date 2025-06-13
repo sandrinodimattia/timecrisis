@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.12.0
+
+### Minor Changes
+
+- 037e085: feat: track the touched_at on job runs
+
+### Patch Changes
+
+- Updated dependencies [037e085]
+  - @timecrisis/timecrisis@0.12.0
+
 ## 0.11.0
 
 ### Minor Changes
