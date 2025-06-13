@@ -72,6 +72,7 @@ export interface JobStorage {
    * @param filter.lockedBy - Filter by worker ID that has locked the job
    * @param filter.runAtBefore - Filter by run date
    * @param filter.limit - Maximum number of jobs to return
+   * @param filter.expiresAtBefore - Filter by expiration date
    * @returns Promise that resolves with an array of matching jobs
    */
   listJobs(filter?: {
@@ -80,6 +81,7 @@ export interface JobStorage {
     referenceId?: string;
     runAtBefore?: Date;
     limit?: number;
+    expiresAtBefore?: Date;
   }): Promise<Job[]>;
 
   /**
@@ -244,10 +246,12 @@ export interface JobStorage {
   /**
    * List all locks held by a specific worker
    * @param worker - The worker to list locks for
+   * @param expiredBefore - Filter by expiration date
    * @returns Promise that resolves with an array of lock data
    */
   listLocks(filters?: {
-    worker?: string | undefined;
+    worker?: string;
+    expiredBefore?: Date;
   }): Promise<{ lockId: string; worker: string; expiresAt: Date }[]>;
 
   /**

@@ -472,47 +472,44 @@ export class InMemoryJobStorage implements JobStorage {
 
   /**
    * List jobs based on the provided filter criteria
-   * @param filter - Filter criteria (optional)
+   * @param query - Filter criteria (optional)
    * @returns Array of jobs matching the filter criteria
    */
-  async listJobs(filter?: {
+  async listJobs(query?: {
     status?: string[];
     type?: string;
-    entityId?: string;
+    referenceId?: string;
     runAtBefore?: Date;
+    expiresAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]> {
-    let result = Array.from(this.jobs.values());
+    let jobs = Array.from(this.jobs.values());
 
-    if (filter?.type) {
-      result = result.filter((job) => job.type === filter.type);
+    if (query?.type) {
+      jobs = jobs.filter((job) => job.type === query.type);
     }
 
-    if (filter?.status && filter.status.length > 0) {
-      result = result.filter((job) => filter.status!.includes(job.status));
+    if (query?.status && query.status.length > 0) {
+      jobs = jobs.filter((job) => query.status!.includes(job.status));
     }
 
-    if (filter?.entityId) {
-      result = result.filter((job) => job.entityId === filter.entityId);
+    if (query?.referenceId) {
+      jobs = jobs.filter((job) => job.entityId === query.referenceId);
     }
 
-    if (filter?.runAtBefore) {
-      result = result.filter((job) => !job.runAt || job.runAt <= filter.runAtBefore!);
+    if (query?.runAtBefore) {
+      jobs = jobs.filter((job) => !job.runAt || job.runAt <= query.runAtBefore!);
     }
 
-    // Sort jobs by createdAt (oldest first), handling jobs without createdAt (they go first)
-    result.sort((a, b) => {
-      if (!a.createdAt && !b.createdAt) return 0;
-      if (!a.createdAt) return -1;
-      if (!b.createdAt) return 1;
-      return a.createdAt.getTime() - b.createdAt.getTime();
-    });
-
-    if (filter?.limit && filter.limit > 0) {
-      return result.slice(0, filter.limit);
+    if (query?.expiresAtBefore) {
+      jobs = jobs.filter((job) => job.expiresAt && job.expiresAt <= query.expiresAtBefore!);
     }
 
-    return result;
+    if (query?.limit && query.limit > 0) {
+      jobs = jobs.slice(0, query.limit);
+    }
+
+    return jobs;
   }
 
   /**
@@ -580,24 +577,22 @@ export class InMemoryJobStorage implements JobStorage {
    * @returns True if the lock was acquired, false otherwise
    */
   async acquireLock(lockId: string, worker: string, ttl: number): Promise<boolean> {
-    return this.transaction(async () => {
-      const now = new Date();
+    const now = new Date();
 
-      const existingLock = this.locks.get(lockId);
-      if (existingLock) {
-        // If lock exists and hasn't expired, return false regardless of worker.
-        if (existingLock.expiresAt > now) {
-          return false;
-        }
+    const existingLock = this.locks.get(lockId);
+    if (existingLock) {
+      // If lock exists and hasn't expired, return false regardless of worker.
+      if (existingLock.expiresAt > now) {
+        return false;
       }
+    }
 
-      // Lock is either expired or doesn't exist, we can acquire it.
-      this.locks.set(lockId, {
-        worker,
-        expiresAt: new Date(now.getTime() + ttl),
-      });
-      return true;
+    // Lock is either expired or doesn't exist, we can acquire it.
+    this.locks.set(lockId, {
+      worker,
+      expiresAt: new Date(now.getTime() + ttl),
     });
+    return true;
   }
 
   /**
@@ -608,18 +603,16 @@ export class InMemoryJobStorage implements JobStorage {
    * @returns True if the lock was renewed, false otherwise
    */
   async renewLock(lockId: string, worker: string, ttl: number): Promise<boolean> {
-    return this.transaction(async () => {
-      const now = new Date();
-      const existingLock = this.locks.get(lockId);
+    const now = new Date();
+    const existingLock = this.locks.get(lockId);
 
-      // Can only extend if lock exists, hasn't expired, and is owned by the same worker
-      if (existingLock && existingLock.worker === worker && existingLock.expiresAt > now) {
-        existingLock.expiresAt = new Date(now.getTime() + ttl);
-        return true;
-      }
+    // Can only extend if lock exists, hasn't expired, and is owned by the same worker
+    if (existingLock && existingLock.worker === worker && existingLock.expiresAt > now) {
+      existingLock.expiresAt = new Date(now.getTime() + ttl);
+      return true;
+    }
 
-      return false;
-    });
+    return false;
   }
 
   /**
@@ -674,29 +667,27 @@ export class InMemoryJobStorage implements JobStorage {
    * @returns True if the slot was acquired, false otherwise
    */
   async acquireTypeSlot(jobType: string, worker: string, maxConcurrent: number): Promise<boolean> {
-    return this.transaction(async () => {
-      // Get or create the worker map for this job type
-      let workerMap = this.runningJobCounts.get(jobType);
-      if (!workerMap) {
-        workerMap = new Map();
-        this.runningJobCounts.set(jobType, workerMap);
-      }
+    // Get or create the worker map for this job type
+    let workerMap = this.runningJobCounts.get(jobType);
+    if (!workerMap) {
+      workerMap = new Map();
+      this.runningJobCounts.set(jobType, workerMap);
+    }
 
-      // Calculate total slots used across all workers
-      let totalCount = 0;
-      for (const count of workerMap.values()) {
-        totalCount += count;
-      }
+    // Calculate total slots used across all workers
+    let totalCount = 0;
+    for (const count of workerMap.values()) {
+      totalCount += count;
+    }
 
-      if (totalCount >= maxConcurrent) {
-        return false;
-      }
+    if (totalCount >= maxConcurrent) {
+      return false;
+    }
 
-      // Increment the slot count for this worker
-      const currentCount = workerMap.get(worker) || 0;
-      workerMap.set(worker, currentCount + 1);
-      return true;
-    });
+    // Increment the slot count for this worker
+    const currentCount = workerMap.get(worker) || 0;
+    workerMap.set(worker, currentCount + 1);
+    return true;
   }
 
   /**
@@ -705,25 +696,23 @@ export class InMemoryJobStorage implements JobStorage {
    * @param workerName - The ID of the worker releasing the slot
    */
   async releaseTypeSlot(jobType: string, workerName: string): Promise<void> {
-    return this.transaction(async () => {
-      const workerMap = this.runningJobCounts.get(jobType);
-      if (!workerMap) {
-        return;
-      }
+    const workerMap = this.runningJobCounts.get(jobType);
+    if (!workerMap) {
+      return;
+    }
 
-      const currentCount = workerMap.get(workerName) || 0;
-      if (currentCount > 0) {
-        workerMap.set(workerName, currentCount - 1);
-      }
+    const currentCount = workerMap.get(workerName) || 0;
+    if (currentCount > 0) {
+      workerMap.set(workerName, currentCount - 1);
+    }
 
-      // Clean up empty maps
-      if (workerMap.get(workerName) === 0) {
-        workerMap.delete(workerName);
-      }
-      if (workerMap.size === 0) {
-        this.runningJobCounts.delete(jobType);
-      }
-    });
+    // Clean up empty maps
+    if (workerMap.get(workerName) === 0) {
+      workerMap.delete(workerName);
+    }
+    if (workerMap.size === 0) {
+      this.runningJobCounts.delete(jobType);
+    }
   }
 
   /**
@@ -731,18 +720,16 @@ export class InMemoryJobStorage implements JobStorage {
    * @param workerName - The ID of the worker to release all slots for
    */
   async releaseAllTypeSlots(workerName: string): Promise<void> {
-    return this.transaction(async () => {
-      for (const [jobType, workerMap] of this.runningJobCounts.entries()) {
-        if (workerMap.has(workerName)) {
-          workerMap.delete(workerName);
+    for (const [jobType, workerMap] of this.runningJobCounts.entries()) {
+      if (workerMap.has(workerName)) {
+        workerMap.delete(workerName);
 
-          // Clean up empty maps
-          if (workerMap.size === 0) {
-            this.runningJobCounts.delete(jobType);
-          }
+        // Clean up empty maps
+        if (workerMap.size === 0) {
+          this.runningJobCounts.delete(jobType);
         }
       }
-    });
+    }
   }
 
   /**

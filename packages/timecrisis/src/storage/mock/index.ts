@@ -218,6 +218,7 @@ export class MockJobStorage implements JobStorage {
     type?: string;
     referenceId?: string;
     runAtBefore?: Date;
+    expiresAtBefore?: Date;
     limit?: number;
   }): Promise<Job[]> {
     let jobs = Array.from(this.jobs.values());
@@ -236,6 +237,10 @@ export class MockJobStorage implements JobStorage {
 
     if (query?.runAtBefore) {
       jobs = jobs.filter((job) => !job.runAt || job.runAt <= query.runAtBefore!);
+    }
+
+    if (query?.expiresAtBefore) {
+      jobs = jobs.filter((job) => job.expiresAt && job.expiresAt <= query.expiresAtBefore!);
     }
 
     if (query?.limit && query.limit > 0) {
