@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.7.0
+
+### Minor Changes
+
+- b57bb44: feat: make sure no data is lost for scheduled jobs when restarting the process
+
 ## 0.6.0
 
 ### Minor Changes
