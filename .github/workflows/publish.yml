@@ -1,14 +1,30 @@
 name: Publish to NPM
 
 on:
-  release:
-    types: [created]
+  push:
+    branches:
+      - main
 
 jobs:
   publish:
+    name: Publish to NPM
     runs-on: ubuntu-latest
+    if: ${{ startsWith(github.event.head_commit.message, 'release:') }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Extract version from commit message
+        id: version
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          VERSION=$(echo "$COMMIT_MSG" | sed -n 's/^release: //p')
+          if [[ -z "$VERSION" ]]; then
+            echo "Version not found"
+            exit 1
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -26,8 +42,8 @@ jobs:
           mkdir -p ~/.pnpm-store
           echo "STORE_PATH=~/.pnpm-store" >> $GITHUB_ENV
 
-      - uses: actions/cache@v3
-        name: Setup pnpm cache
+      - name: Cache pnpm store
+        uses: actions/cache@v4
         with:
           path: ~/.pnpm-store
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -43,8 +59,14 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag v${{ steps.version.outputs.version }}
+          git push origin v${{ steps.version.outputs.version }}
+
       - name: Publish to NPM
-        shell: bash
         run: pnpm publish-packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
