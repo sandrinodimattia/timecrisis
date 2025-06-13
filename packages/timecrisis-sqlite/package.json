@@ -1,6 +1,6 @@
 {
   "name": "@timecrisis/timecrisis-sqlite",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "Sandrino Di Mattia",
   "license": "MIT",
   "description": "A SQLite storage adapter for the Time Crisis job scheduler",
@@ -44,7 +44,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@timecrisis/timecrisis": "workspace:^0.7.0",
+    "@timecrisis/timecrisis": "workspace:^0.8.0",
     "better-sqlite3": "^11.8.1",
     "sqlite-up": "^0.2.0",
     "zod": "^3.24.1"

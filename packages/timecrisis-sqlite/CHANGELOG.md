@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.8.0
+
+### Minor Changes
+
+- 6386772: fix: make sure timezone is persisted in scheduled job
+
+### Patch Changes
+
+- Updated dependencies [6386772]
+  - @timecrisis/timecrisis@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.8.0
+
+### Minor Changes
+
+- 6386772: fix: make sure timezone is persisted in scheduled job
+
 ## 0.7.0
 
 ### Minor Changes
