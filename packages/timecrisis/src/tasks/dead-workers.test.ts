@@ -458,6 +458,23 @@ describe('DeadWorkersTask', () => {
     expect(await storage.getRunningCount()).toBe(0);
   });
 
+  it('should log an error and continue if storage fails during execution', async () => {
+    // Spy on the logger to ensure errors are reported
+    const loggerSpy = vi.spyOn(task['logger'], 'error');
+
+    // Mock the storage to throw an error
+    vi.spyOn(storage, 'getInactiveWorkers').mockRejectedValueOnce(new Error('DB Connection Lost'));
+
+    // Execute the task. It should catch the error internally.
+    await task.execute();
+
+    // Verify that the error was logged
+    expect(loggerSpy).toHaveBeenCalledWith(
+      'Failed to check for inactive workers',
+      expect.objectContaining({ error: 'DB Connection Lost' })
+    );
+  });
+
   it('should cleanup concurrency slots for multiple inactive workers', async () => {
     // Register two workers
     const worker1 = await storage.registerWorker({ name: 'worker-1' });
