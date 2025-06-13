@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 import { Lock } from '../../concurrency/lock.js';
 import { Job } from '../../storage/schemas/job.js';
-import { JobDefinition } from '../../scheduler/types.js';
 import { JobContextImpl } from '../../scheduler/context.js';
 import { formatLockName } from '../../concurrency/job-lock.js';
+import { JobDefinition, JobExpiredError } from '../../scheduler/types.js';
 import { JobContextData, Middleware, PendingJobsContext } from './types.js';
 
 /**
@@ -72,7 +72,7 @@ export function limitExecutionsByType(): Middleware {
       // Attempt to acquire a slot to run this job type.
       typeSlotAcquired = await storage.acquireTypeSlot(job.type, ctx.worker, typeConcurrencyLimit);
       if (!typeSlotAcquired) {
-        logger.debug(`Failed to acquire executionslot for job type "${job.type}"`, {
+        logger.debug(`Failed to acquire execution slot for job type "${job.type}"`, {
           jobId: job.id,
           type: job.type,
         });
@@ -162,7 +162,8 @@ export function expirationCheckMiddleware(): Middleware {
         expiresAt: job.expiresAt,
       });
 
-      await stateMachine.fail(job, undefined, false, `Job expired (expiresAt=${job.expiresAt})`);
+      const err = new JobExpiredError(`Job "${job.id}" expired at ${job.expiresAt}`);
+      await stateMachine.fail(job, undefined, false, err, err.message, err.stack);
       return;
     }
 
@@ -278,6 +279,7 @@ export function completionMiddleware(): Middleware {
         job,
         jobRunId,
         true, // willRetry
+        error as Error,
         errorMessage,
         error instanceof Error ? error.stack : undefined
       );
@@ -298,9 +300,9 @@ export function createJobPipeline(
   ) => JobContextImpl
 ) {
   const pipeline = composeMiddlewares([
+    distributedLockMiddleware(),
     limitExecutions(),
     limitExecutionsByType(),
-    distributedLockMiddleware(),
     expirationCheckMiddleware(),
     startJobMiddleware(),
     completionMiddleware(),
