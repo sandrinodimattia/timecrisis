@@ -373,6 +373,56 @@ describe('JobScheduler', () => {
       expect(saved1?.data).toEqual({ test: 'data1' });
       expect(saved2?.data).toEqual({ test: 'data2' });
     });
+
+    it('should pass reference ID from scheduled job to created job', async () => {
+      // Register the job type first
+      scheduler.registerJob({
+        type: 'test-schedule',
+        schema: z.object({
+          test: z.string(),
+        }),
+        handle: async () => {},
+        concurrency: 1,
+      });
+
+      const scheduledJobId = await scheduler.schedule(
+        'Test Scheduled Job',
+        'test-schedule',
+        { test: 'data' },
+        {
+          scheduleType: 'cron',
+          scheduleValue: '0 * * * *',
+          referenceId: 'test-ref-123',
+        }
+      );
+
+      // Advance time to the next hour
+      const now = new Date();
+      const nextHour = new Date(now);
+      nextHour.setHours(nextHour.getHours() + 1);
+      nextHour.setMinutes(0);
+      nextHour.setSeconds(0);
+      nextHour.setMilliseconds(0);
+
+      const timeToAdvance = nextHour.getTime() - now.getTime();
+      await vi.advanceTimersByTimeAsync(timeToAdvance);
+
+      // Process the scheduled jobs
+      await vi.advanceTimersByTimeAsync(100); // Wait for next poll interval
+      await vi.advanceTimersByTimeAsync(100); // Wait for scheduled job processing
+
+      // Process the enqueued job
+      await vi.advanceTimersByTimeAsync(100); // Wait for next poll interval
+      await vi.advanceTimersByTimeAsync(100); // Wait for job execution
+      await vi.advanceTimersByTimeAsync(100); // Wait for job completion
+
+      // Get the created job
+      const jobs = await storage.listJobs();
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].type).toBe('test-schedule');
+      expect(jobs[0].referenceId).toBe('test-ref-123');
+      expect(jobs[0].scheduledJobId).toBe(scheduledJobId);
+    });
   });
 
   describe('concurrency control', () => {

@@ -896,6 +896,61 @@ describe('SQLiteJobStorage', () => {
       expect(saved2?.timeZone).toBe('UTC'); // Preserved
       expect(saved2?.enabled).toBe(true); // Preserved
     });
+
+    it('should create a scheduled job with a reference ID', async () => {
+      const jobId = await storage.createScheduledJob({
+        type: 'test-schedule',
+        name: 'Test Scheduled Job',
+        scheduleType: 'cron',
+        scheduleValue: '0 * * * *',
+        referenceId: 'test-ref-123',
+      });
+
+      const job = await storage.getScheduledJob(jobId);
+      expect(job).toBeDefined();
+      expect(job!.type).toBe('test-schedule');
+      expect(job!.referenceId).toBe('test-ref-123');
+    });
+
+    it('should update a scheduled job reference ID', async () => {
+      const jobId = await storage.createScheduledJob({
+        type: 'test-schedule',
+        name: 'Test Scheduled Job',
+        scheduleType: 'cron',
+        scheduleValue: '0 * * * *',
+        referenceId: 'test-ref-123',
+      });
+
+      await storage.updateScheduledJob(jobId, {
+        referenceId: 'test-ref-456',
+      });
+
+      const job = await storage.getScheduledJob(jobId);
+      expect(job).toBeDefined();
+      expect(job!.referenceId).toBe('test-ref-456');
+    });
+
+    it('should list scheduled jobs by reference ID', async () => {
+      await storage.createScheduledJob({
+        type: 'test-schedule-1',
+        name: 'Test Scheduled Job 1',
+        scheduleType: 'cron',
+        scheduleValue: '0 * * * *',
+        referenceId: 'test-ref-123',
+      });
+
+      await storage.createScheduledJob({
+        type: 'test-schedule-2',
+        name: 'Test Scheduled Job 2',
+        scheduleType: 'cron',
+        scheduleValue: '0 * * * *',
+        referenceId: 'test-ref-456',
+      });
+
+      const jobs = await storage.listScheduledJobs({ referenceId: 'test-ref-123' });
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].referenceId).toBe('test-ref-123');
+    });
   });
 
   describe('Dead Letter Queue', () => {

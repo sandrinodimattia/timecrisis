@@ -61,6 +61,11 @@ export const ScheduledJobSchema = z.object({
   nextRunAt: z.date().nullable().optional(),
 
   /**
+   * Reference ID for the scheduled job
+   */
+  referenceId: z.string().nullable().optional(),
+
+  /**
    * When the scheduled job was created
    */
   createdAt: z.date(),
@@ -83,6 +88,7 @@ export const CreateScheduledJobSchema = ScheduledJobSchema.omit({
   enabled: true,
   lastScheduledAt: true,
   nextRunAt: true,
+  referenceId: true,
 });
 
 /**

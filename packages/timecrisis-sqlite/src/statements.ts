@@ -176,6 +176,7 @@ export const SQLiteStatements = {
       enabled,
       last_scheduled_at,
       next_run_at,
+      reference_id,
       created_at,
       updated_at
     ) VALUES (
@@ -189,6 +190,7 @@ export const SQLiteStatements = {
       @enabled,
       @last_scheduled_at,
       @next_run_at,
+      @reference_id,
       @created_at,
       @updated_at
     )
@@ -200,6 +202,7 @@ export const SQLiteStatements = {
       enabled = excluded.enabled,
       last_scheduled_at = excluded.last_scheduled_at,
       next_run_at = excluded.next_run_at,
+      reference_id = excluded.reference_id,
       updated_at = excluded.updated_at
     RETURNING id
   `,
@@ -224,6 +227,7 @@ export const SQLiteStatements = {
       enabled = @enabled,
       last_scheduled_at = @last_scheduled_at,
       next_run_at = @next_run_at,
+      reference_id = @reference_id,
       updated_at = @updated_at
     WHERE id = @id
   `,
@@ -241,6 +245,7 @@ export const SQLiteStatements = {
     FROM scheduled_jobs
     WHERE (enabled = @enabled OR @enabled IS NULL)
       AND (next_run_at <= @next_run_before OR @next_run_before IS NULL)
+      AND (@reference_id IS NULL OR reference_id = @reference_id)
   `,
 
   insertDeadLetterJob: `

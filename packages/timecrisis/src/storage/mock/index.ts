@@ -444,6 +444,7 @@ export class MockJobStorage implements JobStorage {
   async listScheduledJobs(filter?: {
     enabled?: boolean;
     nextRunBefore?: Date;
+    referenceId?: string;
   }): Promise<ScheduledJob[]> {
     let jobs = Array.from(this.scheduledJobs.values());
 
@@ -455,6 +456,10 @@ export class MockJobStorage implements JobStorage {
     // Filter by nextRunAt if specified
     if (filter?.nextRunBefore) {
       jobs = jobs.filter((job) => job.nextRunAt && job.nextRunAt <= filter.nextRunBefore!);
+    }
+
+    if (filter?.referenceId) {
+      jobs = jobs.filter((job) => job.referenceId === filter.referenceId);
     }
 
     return jobs;

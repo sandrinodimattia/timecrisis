@@ -232,6 +232,7 @@ export class JobScheduler {
       data: validData,
       enabled: options.enabled ?? true,
       nextRunAt,
+      referenceId: options.referenceId,
     });
   }
 

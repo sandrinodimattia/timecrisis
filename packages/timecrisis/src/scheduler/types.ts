@@ -189,7 +189,7 @@ export interface EnqueueOptions {
   /**
    * Reference ID for grouping jobs (e.g., by user or entity).
    **/
-  referenceId?: string;
+  referenceId?: string | null;
 
   /**
    * ID of the scheduled job that created this job, if any.
@@ -236,6 +236,11 @@ export interface ScheduleOptions {
    * Whether the schedule should be active immediately.
    **/
   enabled?: boolean;
+
+  /**
+   * Reference ID for grouping jobs (e.g., by user or entity).
+   **/
+  referenceId?: string;
 }
 
 /**

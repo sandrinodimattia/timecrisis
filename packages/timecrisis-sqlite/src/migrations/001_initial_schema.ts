@@ -58,6 +58,7 @@ export function up(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_jobs (
       id TEXT PRIMARY KEY,
+      reference_id TEXT,
       name TEXT NOT NULL,
       type TEXT NOT NULL,
       schedule_type TEXT NOT NULL 
@@ -128,6 +129,7 @@ export function up(db: Database): void {
     CREATE INDEX idx_dead_letter_job ON dead_letter_jobs(job_id);
     CREATE INDEX idx_scheduled_enabled ON scheduled_jobs(enabled);
     CREATE INDEX idx_scheduled_next ON scheduled_jobs(next_run_at);
+    CREATE INDEX idx_scheduled_reference ON scheduled_jobs(reference_id);
   `);
 }
 

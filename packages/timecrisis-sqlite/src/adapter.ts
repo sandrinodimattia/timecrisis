@@ -535,6 +535,7 @@ export class SQLiteJobStorage implements JobStorage {
       next_run_at: fromDate(newJob.nextRunAt),
       created_at: newJob.createdAt.toISOString(),
       updated_at: newJob.updatedAt.toISOString(),
+      reference_id: newJob.referenceId ?? null,
     }) as ScheduledJobRow;
 
     return result.id;
@@ -574,6 +575,7 @@ export class SQLiteJobStorage implements JobStorage {
       last_scheduled_at: fromDate(updated.lastScheduledAt),
       next_run_at: fromDate(updated.nextRunAt),
       updated_at: updated.updatedAt.toISOString(),
+      reference_id: updated.referenceId ?? null,
     });
   }
 
@@ -598,19 +600,22 @@ export class SQLiteJobStorage implements JobStorage {
   async listScheduledJobs(filter?: {
     enabled?: boolean;
     nextRunBefore?: Date;
+    referenceId?: string;
   }): Promise<ScheduledJob[]> {
-    if (!filter || (filter.enabled === undefined && !filter.nextRunBefore)) {
+    if (!filter || (filter.enabled === undefined && !filter.nextRunBefore && !filter.referenceId)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rows: any[] = this.stmtSelectAllScheduledJobs.all([]);
       return rows.map((r) => this.mapRowToScheduledJob(r));
     }
 
+    // Otherwise, use the filtered statement without reference_id
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows: any[] = this.stmtSelectFilteredScheduledJobs.all({
       enabled: filter.enabled !== undefined ? fromBoolean(filter.enabled) : null,
       next_run_before: filter.nextRunBefore ? filter.nextRunBefore.toISOString() : null,
+      reference_id: filter.referenceId !== undefined ? filter.referenceId : null,
     });
-    return rows.map((r) => this.mapRowToScheduledJob(r));
+    return rows.map((row) => this.mapRowToScheduledJob(row));
   }
 
   /**
@@ -1075,6 +1080,7 @@ export class SQLiteJobStorage implements JobStorage {
       enabled: toBoolean(row.enabled),
       lastScheduledAt: toDate(row.last_scheduled_at) ?? undefined,
       nextRunAt: toDate(row.next_run_at) ?? undefined,
+      referenceId: row.reference_id,
       createdAt: toDate(row.created_at),
       updatedAt: toDate(row.updated_at),
     });

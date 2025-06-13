@@ -167,6 +167,7 @@ export class ScheduledJobsTask {
           // Execute the job
           await this.cfg.stateMachine.enqueue(job.type, job.data, {
             scheduledJobId: job.id,
+            referenceId: job.referenceId,
           });
 
           // Update the last run time and calculate next run

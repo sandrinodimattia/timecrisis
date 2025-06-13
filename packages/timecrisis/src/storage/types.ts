@@ -150,9 +150,14 @@ export interface JobStorage {
    * @param filter - Optional filter criteria for scheduled jobs
    * @param filter.enabled - Filter by enabled status
    * @param filter.nextRunBefore - Filter by next run date
+   * @param filter.referenceId - Filter by reference ID
    * @returns Promise that resolves with an array of matching scheduled jobs
    */
-  listScheduledJobs(filter?: { enabled?: boolean; nextRunBefore?: Date }): Promise<ScheduledJob[]>;
+  listScheduledJobs(filter?: {
+    enabled?: boolean;
+    nextRunBefore?: Date;
+    referenceId?: string;
+  }): Promise<ScheduledJob[]>;
 
   /**
    * Create a dead letter entry.

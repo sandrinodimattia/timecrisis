@@ -560,6 +560,7 @@ export class InMemoryJobStorage implements JobStorage {
     filter: {
       enabled?: boolean;
       nextRunBefore?: Date;
+      referenceId?: string;
     } = {}
   ): Promise<ScheduledJob[]> {
     let jobs = Array.from(this.scheduledJobs.values());
@@ -572,6 +573,11 @@ export class InMemoryJobStorage implements JobStorage {
     // Filter by nextRunAt if specified
     if (filter.nextRunBefore) {
       jobs = jobs.filter((job) => job.nextRunAt && job.nextRunAt <= filter.nextRunBefore!);
+    }
+
+    // Filter by referenceId if specified
+    if (filter.referenceId) {
+      jobs = jobs.filter((job) => job.referenceId === filter.referenceId);
     }
 
     return jobs;
