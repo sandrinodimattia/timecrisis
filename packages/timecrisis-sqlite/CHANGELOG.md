@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.10.0
+
+### Minor Changes
+
+- 769af3a: feat: cascade down the reference ID to scheduled jobs
+
+### Patch Changes
+
+- Updated dependencies [769af3a]
+  - @timecrisis/timecrisis@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

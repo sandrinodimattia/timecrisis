@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.10.0
+
+### Minor Changes
+
+- 769af3a: feat: cascade down the reference ID to scheduled jobs
+
 ## 0.9.0
 
 ### Minor Changes
