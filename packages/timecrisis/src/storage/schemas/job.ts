@@ -30,6 +30,11 @@ export const JobSchema = z.object({
   entityId: z.string().nullable().optional(),
 
   /**
+   * ID of the scheduled job that created this job, if any.
+   */
+  scheduledJobId: z.string().nullable().optional(),
+
+  /**
    * Job-specific data which will be provided to the job when it runs.
    */
   data: z.unknown(),

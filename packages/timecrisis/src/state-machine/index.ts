@@ -110,6 +110,7 @@ export class JobStateMachine {
       maxRetries: options.maxRetries,
       priority: options.priority ?? job.priority,
       entityId: options.entityId,
+      scheduledJobId: options.scheduledJobId,
       expiresAt,
       backoffStrategy: options.backoffStrategy,
     });

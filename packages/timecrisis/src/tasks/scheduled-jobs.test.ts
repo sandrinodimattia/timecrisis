@@ -84,7 +84,9 @@ describe('ScheduledJobsTask', () => {
     await vi.advanceTimersByTimeAsync(1000);
     await task.execute();
 
-    expect(stateMachine.enqueue).toHaveBeenCalledWith(defaultJobDefinition.type, defaultJob.data);
+    expect(stateMachine.enqueue).toHaveBeenCalledWith(defaultJobDefinition.type, defaultJob.data, {
+      scheduledJobId: scheduledJobId,
+    });
     expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
       lastScheduledAt: new Date(),
       enabled: false,
@@ -104,7 +106,9 @@ describe('ScheduledJobsTask', () => {
 
     await task.execute();
 
-    expect(stateMachine.enqueue).toHaveBeenCalledWith(defaultJobDefinition.type, defaultJob.data);
+    expect(stateMachine.enqueue).toHaveBeenCalledWith(defaultJobDefinition.type, defaultJob.data, {
+      scheduledJobId: scheduledJobId,
+    });
     expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
       nextRunAt: new Date(now.getTime() + 60000),
       lastScheduledAt: new Date(),
@@ -127,7 +131,9 @@ describe('ScheduledJobsTask', () => {
     const interval = cronParser.parseExpression('*/5 * * * *');
     const nextRun = interval.next().toDate();
 
-    expect(stateMachine.enqueue).toHaveBeenCalledWith(defaultJobDefinition.type, defaultJob.data);
+    expect(stateMachine.enqueue).toHaveBeenCalledWith(defaultJobDefinition.type, defaultJob.data, {
+      scheduledJobId: scheduledJobId,
+    });
     expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
       nextRunAt: nextRun,
       lastScheduledAt: new Date(),
@@ -260,7 +266,13 @@ describe('ScheduledJobsTask', () => {
       await task.execute();
 
       // Verify job was executed
-      expect(stateMachine.enqueue).toHaveBeenCalledWith('test', { test: true });
+      expect(stateMachine.enqueue).toHaveBeenCalledWith(
+        'test',
+        { test: true },
+        {
+          scheduledJobId: scheduledJobId,
+        }
+      );
       expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
 
       // Verify nextRunAt was updated to next minute
@@ -294,7 +306,13 @@ describe('ScheduledJobsTask', () => {
       await task.execute();
 
       // Verify job was executed
-      expect(stateMachine.enqueue).toHaveBeenCalledWith('test', { test: true });
+      expect(stateMachine.enqueue).toHaveBeenCalledWith(
+        'test',
+        { test: true },
+        {
+          scheduledJobId: scheduledJobId,
+        }
+      );
       expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
 
       // Verify nextRunAt was updated to next minute

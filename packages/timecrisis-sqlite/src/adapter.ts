@@ -253,6 +253,7 @@ export class SQLiteJobStorage implements JobStorage {
       fail_reason: newJob.failReason ?? null,
       fail_count: newJob.failCount,
       entity_id: newJob.entityId ?? null,
+      scheduled_job_id: newJob.scheduledJobId ?? null,
       expires_at: fromDate(newJob.expiresAt),
       started_at: fromDate(newJob.startedAt),
       run_at: fromDate(newJob.runAt),
@@ -312,6 +313,7 @@ export class SQLiteJobStorage implements JobStorage {
       fail_reason: updatedJob.failReason ?? null,
       fail_count: updatedJob.failCount,
       entity_id: updatedJob.entityId ?? null,
+      scheduled_job_id: updatedJob.scheduledJobId ?? null,
       expires_at: fromDate(updatedJob.expiresAt),
       started_at: fromDate(updatedJob.startedAt),
       run_at: fromDate(updatedJob.runAt),
@@ -1005,6 +1007,7 @@ export class SQLiteJobStorage implements JobStorage {
       startedAt: toDate(row.started_at) ?? undefined,
       runAt: toDate(row.run_at) ?? undefined,
       finishedAt: toDate(row.finished_at) ?? undefined,
+      scheduledJobId: row.scheduled_job_id,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     });

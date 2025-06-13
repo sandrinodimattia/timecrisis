@@ -4,6 +4,7 @@ export function up(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
+      scheduled_job_id TEXT,
       entity_id TEXT,
       status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'canceled')),
       type TEXT NOT NULL,
@@ -19,7 +20,8 @@ export function up(db: Database): void {
       started_at TEXT,
       finished_at TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (scheduled_job_id) REFERENCES scheduled_jobs(id)
     )
   `);
 

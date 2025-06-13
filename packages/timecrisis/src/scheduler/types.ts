@@ -192,6 +192,11 @@ export interface EnqueueOptions {
   entityId?: string;
 
   /**
+   * ID of the scheduled job that created this job, if any.
+   **/
+  scheduledJobId?: string;
+
+  /**
    * When the job should expire.
    **/
   expiresAt?: Date;
