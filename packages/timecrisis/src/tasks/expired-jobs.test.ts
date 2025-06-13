@@ -83,7 +83,10 @@ describe('ExpiredJobsTask', () => {
   it('should process no jobs if none are running', async () => {
     vi.mocked(storage.listJobs).mockResolvedValue([]);
     await task.execute();
-    expect(storage.listJobs).toHaveBeenCalledWith({ status: ['pending'] });
+    expect(storage.listJobs).toHaveBeenCalledWith({
+      status: ['pending'],
+      expiresAtBefore: expect.any(Date),
+    });
     expect(storage.updateJob).not.toHaveBeenCalled();
   });
 
@@ -130,7 +133,7 @@ describe('ExpiredJobsTask', () => {
       runAt: expect.any(Date),
     });
 
-    // Verify job was unlocked
+    // Verify job was unlocked using the real storage
     const locks = await storage.listLocks({ worker: defaultValues.workerName });
     const jobLock = locks.find((lock) => formatLockName(jobId) === lock.lockId);
     expect(jobLock).toBeUndefined();
@@ -193,7 +196,8 @@ describe('ExpiredJobsTask', () => {
   });
 
   it('should handle expired jobs', async () => {
-    const jobId = await storage.createJob({
+    // Create an expired job
+    const expiredJobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
       priority: 0,
@@ -205,14 +209,35 @@ describe('ExpiredJobsTask', () => {
       expiresAt: now,
     });
 
+    // Create a non-expired job
+    await storage.createJob({
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      priority: 0,
+      status: 'pending',
+      maxRetries: 1,
+      backoffStrategy: 'exponential',
+      failCount: 1,
+      startedAt: now,
+      expiresAt: tomorrow,
+    });
+
     await vi.advanceTimersByTimeAsync(100);
     await task.execute();
 
-    expect(storage.updateJob).toHaveBeenCalledWith(jobId, {
+    // Verify that only the expired job was updated
+    expect(storage.updateJob).toHaveBeenCalledTimes(1);
+    expect(storage.updateJob).toHaveBeenCalledWith(expiredJobId, {
       status: 'failed',
       failReason: expect.stringMatching('expired at'),
       finishedAt: expect.any(Date),
       failCount: 2,
+    });
+
+    // Verify that listJobs was called with the correct filter
+    expect(storage.listJobs).toHaveBeenCalledWith({
+      status: ['pending'],
+      expiresAtBefore: expect.any(Date),
     });
   });
 
@@ -226,7 +251,7 @@ describe('ExpiredJobsTask', () => {
       backoffStrategy: 'exponential',
       failCount: 1,
       startedAt: now,
-      expiresAt: tomorrow,
+      expiresAt: tomorrow, // Set expiration to tomorrow
     });
 
     await storage.acquireLock(
@@ -234,6 +259,9 @@ describe('ExpiredJobsTask', () => {
       defaultValues.workerName,
       defaultValues.jobLockTTL
     );
+
+    // Mock listJobs to return empty array since job is not expired
+    vi.mocked(storage.listJobs).mockResolvedValue([]);
 
     await vi.advanceTimersByTimeAsync(100);
     await task.execute();

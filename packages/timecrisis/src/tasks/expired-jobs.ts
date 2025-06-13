@@ -98,29 +98,28 @@ export class ExpiredJobsTask {
     const now = new Date();
 
     try {
-      const locks = await this.cfg.storage.listLocks();
+      // Get only expired locks from the DB
+      const expiredLocks = await this.cfg.storage.listLocks({ expiredBefore: now });
 
       this.logger.debug('Checking for expired locks', {
-        locks: locks.length,
+        locks: expiredLocks.length,
       });
 
       // Look for jobs that are locked beyond their TTL.
-      for (const lock of locks) {
+      for (const lock of expiredLocks) {
         try {
-          if (lock.expiresAt.getTime() < now.getTime()) {
-            if (isJobLock(lock.lockId)) {
-              // Fail the job.
-              const job = await this.cfg.storage.getJob(getJobId(lock.lockId)!);
-              if (job) {
-                const err = new JobLockExpiredError(
-                  `Job "${job.id}" lock expired at ${lock.expiresAt.toISOString()}`
-                );
-                await this.cfg.stateMachine.fail(job, undefined, true, err, err.message, err.stack);
-              }
-
-              // Delete the lock.
-              await this.cfg.storage.releaseLock(lock.lockId, lock.worker);
+          if (isJobLock(lock.lockId)) {
+            // Fail the job.
+            const job = await this.cfg.storage.getJob(getJobId(lock.lockId)!);
+            if (job) {
+              const err = new JobLockExpiredError(
+                `Job "${job.id}" lock expired at ${lock.expiresAt.toISOString()}`
+              );
+              await this.cfg.stateMachine.fail(job, undefined, true, err, err.message, err.stack);
             }
+
+            // Delete the lock.
+            await this.cfg.storage.releaseLock(lock.lockId, lock.worker);
           }
         } catch (err) {
           this.logger.error('Error processing locked job', {
@@ -131,23 +130,24 @@ export class ExpiredJobsTask {
         }
       }
 
-      const jobs = await this.cfg.storage.listJobs({ status: ['pending'] });
+      // We only need to check pending jobs, running jobs will be handled by the dead workers task.
+      const expiredJobs = await this.cfg.storage.listJobs({
+        status: ['pending'],
+        expiresAtBefore: now,
+      });
 
       this.logger.debug('Checking for expired jobs', {
-        jobs: jobs.length,
+        jobs: expiredJobs.length,
       });
 
       // Check jobs which might be expired.
-      for (const job of jobs) {
+      for (const job of expiredJobs) {
         try {
-          // Check job expiration - no retry for expired jobs.
-          if (job.expiresAt && job.expiresAt < now) {
-            // Fail the job.
-            const err = new JobExpiredError(
-              `Job "${job.id}" expired at ${job.expiresAt.toISOString()}`
-            );
-            await this.cfg.stateMachine.fail(job, undefined, false, err, err.message, err.stack);
-          }
+          // Fail the job.
+          const err = new JobExpiredError(
+            `Job "${job.id}" expired at ${job.expiresAt!.toISOString()}`
+          );
+          await this.cfg.stateMachine.fail(job, undefined, false, err, err.message, err.stack);
         } catch (err) {
           this.logger.error('Error processing expired job', {
             jobId: job.id,

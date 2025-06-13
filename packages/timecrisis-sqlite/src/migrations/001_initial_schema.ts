@@ -5,10 +5,10 @@ export function up(db: Database): void {
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
       entity_id TEXT,
-      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'scheduled')),
+      status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'canceled')),
       type TEXT NOT NULL,
       data TEXT NOT NULL,
-      priority INTEGER NOT NULL DEFAULT 1,
+      priority INTEGER NOT NULL DEFAULT 1 CHECK (priority BETWEEN -20 AND 20),
       max_retries INTEGER NOT NULL DEFAULT 0,
       backoff_strategy TEXT NOT NULL DEFAULT 'exponential' 
         CHECK (backoff_strategy IN ('exponential', 'linear')),
@@ -31,7 +31,7 @@ export function up(db: Database): void {
       started_at TEXT,
       finished_at TEXT,
       attempt INTEGER NOT NULL DEFAULT 1,
-      progress INTEGER NOT NULL DEFAULT 0,
+      progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
       execution_duration INTEGER,
       error TEXT,
       error_stack TEXT,
@@ -61,6 +61,7 @@ export function up(db: Database): void {
       schedule_type TEXT NOT NULL 
         CHECK (schedule_type IN ('exact', 'interval', 'cron')),
       schedule_value TEXT NOT NULL,
+      time_zone TEXT,
       data TEXT NOT NULL,
       last_scheduled_at TEXT,
       next_run_at TEXT,
@@ -109,18 +110,27 @@ export function up(db: Database): void {
   `);
 
   db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
-    CREATE INDEX IF NOT EXISTS idx_jobs_type ON jobs(type);
-    CREATE INDEX IF NOT EXISTS idx_jobs_entity ON jobs(entity_id);
-    CREATE INDEX IF NOT EXISTS idx_jobs_expires ON jobs(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_runs_job ON job_runs(job_id);
-    CREATE INDEX IF NOT EXISTS idx_logs_job ON job_logs(job_id);
-    CREATE INDEX IF NOT EXISTS idx_logs_run ON job_logs(job_run_id);
-    CREATE INDEX IF NOT EXISTS idx_scheduled_next ON scheduled_jobs(next_run_at);
-    CREATE INDEX IF NOT EXISTS idx_scheduled_enabled ON scheduled_jobs(enabled);
-    CREATE INDEX IF NOT EXISTS idx_dead_letter_job ON dead_letter_jobs(job_id);
-    CREATE INDEX IF NOT EXISTS idx_locks_expires ON distributed_locks(expires_at);
-    CREATE INDEX IF NOT EXISTS idx_locks_worker ON distributed_locks(worker);
+    CREATE INDEX idx_jobs_entity ON jobs(entity_id);
+    CREATE INDEX idx_jobs_entity_type ON jobs(entity_id, type);
+
+    CREATE INDEX idx_jobs_type ON jobs(type);
+    CREATE INDEX idx_jobs_status ON jobs(status);
+    CREATE INDEX idx_jobs_expires ON jobs(expires_at);
+    CREATE INDEX idx_jobs_status_priority ON jobs(status, priority);
+
+    CREATE INDEX idx_logs_job ON job_logs(job_id);
+    CREATE INDEX idx_logs_run ON job_logs(job_run_id);
+
+    CREATE INDEX idx_runs_job ON job_runs(job_id);
+    CREATE INDEX idx_job_runs_status ON job_runs(status);
+
+    CREATE INDEX idx_locks_worker ON distributed_locks(worker);
+    CREATE INDEX idx_locks_expires ON distributed_locks(expires_at);
+
+    CREATE INDEX idx_dead_letter_job ON dead_letter_jobs(job_id);
+
+    CREATE INDEX idx_scheduled_enabled ON scheduled_jobs(enabled);
+    CREATE INDEX idx_scheduled_next ON scheduled_jobs(next_run_at);
   `);
 }
 

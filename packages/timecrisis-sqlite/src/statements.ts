@@ -72,6 +72,7 @@ export const SQLiteStatements = {
       AND (@entityId IS NULL OR entity_id = @entityId)
       AND (run_at IS NULL OR (@runAtBefore IS NULL OR run_at <= @runAtBefore))
       AND (@status IS NULL OR status IN (SELECT value FROM json_each(@status)))
+      AND (@expiresAtBefore IS NULL OR (expires_at IS NOT NULL AND expires_at <= @expiresAtBefore))
     ORDER BY priority DESC, created_at ASC
     LIMIT CASE WHEN @limit IS NULL THEN -1 ELSE @limit END
   `,
@@ -167,6 +168,7 @@ export const SQLiteStatements = {
       type,
       schedule_type,
       schedule_value,
+      time_zone,
       data,
       enabled,
       last_scheduled_at,
@@ -179,6 +181,7 @@ export const SQLiteStatements = {
       @type,
       @schedule_type,
       @schedule_value,
+      @time_zone,
       @data,
       @enabled,
       @last_scheduled_at,
@@ -199,6 +202,7 @@ export const SQLiteStatements = {
       type = @type,
       schedule_type = @schedule_type,
       schedule_value = @schedule_value,
+      time_zone = @time_zone,
       data = @data,
       enabled = @enabled,
       last_scheduled_at = @last_scheduled_at,
@@ -253,6 +257,7 @@ export const SQLiteStatements = {
     SELECT id, worker, expires_at
     FROM distributed_locks
     WHERE (@worker IS NULL OR worker = @worker)
+      AND (@expiredBefore IS NULL OR expires_at <= @expiredBefore)
   `,
 
   selectLock: `
