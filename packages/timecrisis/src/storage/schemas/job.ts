@@ -35,9 +35,9 @@ export const JobSchema = z.object({
   data: z.unknown(),
 
   /**
-   * Job priority (-20 to 20, higher is more important).
+   * Job priority (1 to 100, lower is more important).
    */
-  priority: z.number().int().min(-20).max(20).default(1),
+  priority: z.number().int().min(1).max(100).default(10),
 
   /**
    * Current status of the job.

@@ -8,7 +8,7 @@ export function up(db: Database): void {
       status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'canceled')),
       type TEXT NOT NULL,
       data TEXT NOT NULL,
-      priority INTEGER NOT NULL DEFAULT 1 CHECK (priority BETWEEN -20 AND 20),
+      priority INTEGER NOT NULL DEFAULT 10 CHECK (priority BETWEEN 1 AND 100),
       max_retries INTEGER NOT NULL DEFAULT 0,
       backoff_strategy TEXT NOT NULL DEFAULT 'exponential' 
         CHECK (backoff_strategy IN ('exponential', 'linear')),

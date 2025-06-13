@@ -182,7 +182,7 @@ export interface EnqueueOptions {
   maxRetries?: number;
 
   /**
-   * Priority of the job (-20 to 20, higher is more important).
+   * Priority of the job (1 to 100, lower is more important).
    **/
   priority?: number;
 
@@ -289,7 +289,7 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
   concurrency: number;
 
   /**
-   * Job priority (-20 to 20, higher is more important).
+   * Job priority (1 to 100, lower is more important).
    */
   priority?: number;
 

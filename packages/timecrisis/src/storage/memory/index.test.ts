@@ -55,7 +55,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'job1',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -64,7 +64,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'job2',
         status: 'completed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -73,7 +73,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'job3',
         status: 'running',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -103,7 +103,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'future-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -115,7 +115,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'past-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -127,7 +127,7 @@ describe('InMemoryJobStorage', () => {
       await storage.createJob({
         type: 'immediate-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -154,7 +154,7 @@ describe('InMemoryJobStorage', () => {
       const job1Id = await storage.createJob({
         type: 'job1',
         status: 'completed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -170,7 +170,7 @@ describe('InMemoryJobStorage', () => {
       const job2Id = await storage.createJob({
         type: 'job1',
         status: 'failed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 1,
@@ -186,7 +186,7 @@ describe('InMemoryJobStorage', () => {
       const job3Id = await storage.createJob({
         type: 'job2',
         status: 'completed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -224,7 +224,7 @@ describe('InMemoryJobStorage', () => {
       jobId = await storage.createJob({
         type: 'test-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,

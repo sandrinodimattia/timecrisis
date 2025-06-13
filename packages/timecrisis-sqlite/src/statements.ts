@@ -73,7 +73,7 @@ export const SQLiteStatements = {
       AND (run_at IS NULL OR (@runAtBefore IS NULL OR run_at <= @runAtBefore))
       AND (@status IS NULL OR status IN (SELECT value FROM json_each(@status)))
       AND (@expiresAtBefore IS NULL OR (expires_at IS NOT NULL AND expires_at <= @expiresAtBefore))
-    ORDER BY priority DESC, created_at ASC
+    ORDER BY priority ASC, created_at ASC
     LIMIT CASE WHEN @limit IS NULL THEN -1 ELSE @limit END
   `,
 

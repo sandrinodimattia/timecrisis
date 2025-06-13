@@ -60,7 +60,7 @@ export const defaultJob: CreateJob = {
   data: {
     test: true,
   },
-  priority: 0,
+  priority: 10,
   maxRetries: 3,
   status: 'pending',
   backoffStrategy: 'exponential',

@@ -215,9 +215,9 @@ describe('SQLiteJobStorage', () => {
       // Test priority ordering
       const orderedJobs = await storage.listJobs({});
       expect(orderedJobs).toHaveLength(3);
-      expect(orderedJobs[0].priority).toBe(3);
+      expect(orderedJobs[0].priority).toBe(1);
       expect(orderedJobs[1].priority).toBe(2);
-      expect(orderedJobs[2].priority).toBe(1);
+      expect(orderedJobs[2].priority).toBe(3);
 
       // Test limit
       const limitedJobs = await storage.listJobs({ limit: 2 });
@@ -341,8 +341,8 @@ describe('SQLiteJobStorage', () => {
       // Test with different limit values
       const twoJobs = await storage.listJobs({ limit: 2 });
       expect(twoJobs).toHaveLength(2);
-      expect(twoJobs[0].priority).toBe(5); // Highest priority first
-      expect(twoJobs[1].priority).toBe(4);
+      expect(twoJobs[0].priority).toBe(1); // Highest priority first
+      expect(twoJobs[1].priority).toBe(2);
 
       const allJobs = await storage.listJobs();
       expect(allJobs).toHaveLength(5);

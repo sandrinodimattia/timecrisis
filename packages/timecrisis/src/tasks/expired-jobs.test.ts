@@ -94,7 +94,7 @@ describe('ExpiredJobsTask', () => {
     const jobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -143,7 +143,7 @@ describe('ExpiredJobsTask', () => {
     const jobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 1,
       backoffStrategy: 'exponential',
@@ -200,7 +200,7 @@ describe('ExpiredJobsTask', () => {
     const expiredJobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'pending',
       maxRetries: 1,
       backoffStrategy: 'exponential',
@@ -213,7 +213,7 @@ describe('ExpiredJobsTask', () => {
     await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'pending',
       maxRetries: 1,
       backoffStrategy: 'exponential',
@@ -245,7 +245,7 @@ describe('ExpiredJobsTask', () => {
     const jobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'pending',
       maxRetries: 1,
       backoffStrategy: 'exponential',
@@ -279,7 +279,7 @@ describe('ExpiredJobsTask', () => {
     const jobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -322,7 +322,7 @@ describe('ExpiredJobsTask', () => {
     await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -343,7 +343,7 @@ describe('ExpiredJobsTask', () => {
     const job1Id = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -367,7 +367,7 @@ describe('ExpiredJobsTask', () => {
     const job2Id = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'pending',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -414,7 +414,7 @@ describe('ExpiredJobsTask', () => {
     const jobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -473,7 +473,7 @@ describe('ExpiredJobsTask', () => {
     const jobId = await storage.createJob({
       type: defaultJobDefinition.type,
       data: defaultJob.data,
-      priority: 0,
+      priority: 10,
       status: 'running',
       maxRetries: 3,
       backoffStrategy: 'exponential',
@@ -582,7 +582,7 @@ describe('ExpiredJobsTask', () => {
       const jobId = await storage.createJob({
         type: defaultJobDefinition.type,
         data: defaultJob.data,
-        priority: 0,
+        priority: 10,
         status: 'running',
         maxRetries: 3,
         backoffStrategy: 'exponential',
@@ -636,7 +636,7 @@ describe('ExpiredJobsTask', () => {
       const jobId = await storage.createJob({
         type: defaultJobDefinition.type,
         data: defaultJob.data,
-        priority: 0,
+        priority: 10,
         status: 'running',
         maxRetries: 3,
         backoffStrategy: 'exponential',
@@ -669,7 +669,7 @@ describe('ExpiredJobsTask', () => {
       await storage.createJob({
         type: defaultJobDefinition.type,
         data: defaultJob.data,
-        priority: 0,
+        priority: 10,
         status: 'running',
         maxRetries: 3,
         backoffStrategy: 'exponential',

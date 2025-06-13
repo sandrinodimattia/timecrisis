@@ -43,7 +43,7 @@ describe('MockJobStorage', () => {
 
       const job = await storage.getJob(jobId);
       expect(job).toBeDefined();
-      expect(job?.priority).toBe(1);
+      expect(job?.priority).toBe(10);
       expect(job?.status).toBe('pending');
       expect(job?.maxRetries).toBe(0);
       expect(job?.backoffStrategy).toBe('exponential');
@@ -58,7 +58,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'job1',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -67,7 +67,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'job2',
         status: 'completed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -76,7 +76,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'job3',
         status: 'running',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -105,7 +105,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'future-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -117,7 +117,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'past-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -129,7 +129,7 @@ describe('MockJobStorage', () => {
       await storage.createJob({
         type: 'immediate-job',
         status: 'pending',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -185,7 +185,7 @@ describe('MockJobStorage', () => {
       const job1Id = await storage.createJob({
         type: 'job1',
         status: 'completed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
@@ -201,7 +201,7 @@ describe('MockJobStorage', () => {
       const job2Id = await storage.createJob({
         type: 'job1',
         status: 'failed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 1,
@@ -217,7 +217,7 @@ describe('MockJobStorage', () => {
       const job3Id = await storage.createJob({
         type: 'job2',
         status: 'completed',
-        priority: 0,
+        priority: 10,
         maxRetries: 3,
         backoffStrategy: 'exponential',
         failCount: 0,
