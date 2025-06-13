@@ -489,12 +489,32 @@ export class SQLiteJobStorage implements JobStorage {
 
     const now = new Date();
     const id = randomUUID();
-    const newJob = ScheduledJobSchema.parse({
-      ...validJob,
-      id,
-      createdAt: now,
-      updatedAt: now,
+
+    // Try to get existing job by name and type
+    const existingRow = this.db.prepare(SQL.selectScheduledJobByNameAndType).get({
+      name: validJob.name,
+      type: validJob.type,
     });
+
+    let newJob;
+    if (existingRow) {
+      // If exists, merge with existing values
+      const existing = this.mapRowToScheduledJob(existingRow);
+      newJob = ScheduledJobSchema.parse({
+        ...existing,
+        ...validJob,
+        id: existing.id, // Keep existing ID
+        updatedAt: now,
+      });
+    } else {
+      // If new, create with all new values
+      newJob = ScheduledJobSchema.parse({
+        ...validJob,
+        id,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
     const dataStr = serializeData(newJob.data);
 
@@ -1050,6 +1070,7 @@ export class SQLiteJobStorage implements JobStorage {
       type: row.type,
       scheduleType: row.schedule_type,
       scheduleValue: row.schedule_value,
+      timeZone: row.time_zone ?? undefined,
       data: parseJSON(row.data),
       enabled: toBoolean(row.enabled),
       lastScheduledAt: toDate(row.last_scheduled_at) ?? undefined,

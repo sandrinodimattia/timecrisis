@@ -196,6 +196,14 @@ export class ScheduledJobsTask {
                 nextRunAt: nextRun,
               });
               updates.nextRunAt = nextRun;
+            } else if (job.scheduleType === 'cron') {
+              // If we couldn't calculate the next run time for a cron job, skip execution
+              this.logger.warn('Skipping job due to invalid cron expression', {
+                jobId: job.id,
+                type: job.type,
+                scheduleValue: job.scheduleValue,
+              });
+              continue;
             }
           }
 
@@ -226,18 +234,26 @@ export class ScheduledJobsTask {
         return new Date(fromDate.getTime() + interval);
       }
       case 'cron': {
-        // Use the highest date between lastScheduledAt and fromDate as the base
-        // This ensures we don't run multiple times if lastScheduledAt is more recent,
-        // and we don't miss runs if the system time was adjusted backwards
-        const baseDate =
-          job.lastScheduledAt && job.lastScheduledAt > fromDate ? job.lastScheduledAt : fromDate;
+        try {
+          const interval = cronParser.parseExpression(job.scheduleValue, {
+            currentDate: fromDate,
+            tz: job.timeZone || 'UTC',
+            iterator: true,
+          });
 
-        const interval = cronParser.parseExpression(job.scheduleValue, {
-          currentDate: baseDate,
-          tz: job.timeZone || 'UTC',
-        });
-
-        return interval.next().toDate();
+          const next = interval.next();
+          if (next.done) {
+            return null;
+          }
+          return next.value.toDate();
+        } catch (error) {
+          this.logger.error('Failed to parse cron expression', {
+            error: error instanceof Error ? error.message : String(error),
+            scheduleValue: job.scheduleValue,
+            timeZone: job.timeZone,
+          });
+          return null;
+        }
       }
       default:
         throw new Error(`Unknown schedule type: ${job.scheduleType}`);

@@ -471,4 +471,96 @@ describe('ScheduledJobsTask', () => {
     // Reset system time
     vi.useRealTimers();
   });
+
+  it('should handle cron jobs with timezone correctly', async () => {
+    const scheduledJobId = await storage.createScheduledJob({
+      name: 'Job 1',
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      enabled: true,
+      scheduleType: 'cron',
+      scheduleValue: '0 * * * *', // Run at the start of every hour
+      timeZone: 'America/New_York',
+      nextRunAt: now,
+    });
+
+    // First execution
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    const firstUpdate = vi.mocked(storage.updateScheduledJob).mock.calls[0][1];
+    const nextRun = firstUpdate.nextRunAt;
+    expect(nextRun).toBeDefined();
+
+    // Clear mocks
+    vi.clearAllMocks();
+
+    // Try to execute again immediately
+    await task.execute();
+
+    // Should not have executed again
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Advance time to the next scheduled hour in New York timezone
+    const nextHour = new Date(nextRun!);
+    await vi.advanceTimersByTimeAsync(nextHour.getTime() - Date.now());
+
+    // Now it should execute
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
+      lastScheduledAt: expect.any(Date),
+      nextRunAt: expect.any(Date),
+    });
+  });
+
+  it('should persist last_scheduled_at across restarts', async () => {
+    const scheduledJobId = await storage.createScheduledJob({
+      name: 'Job 1',
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      enabled: true,
+      scheduleType: 'cron',
+      scheduleValue: '*/1 * * * *', // Run every minute
+      nextRunAt: now,
+    });
+
+    // First execution
+    await task.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    const firstUpdate = vi.mocked(storage.updateScheduledJob).mock.calls[0][1];
+    const lastScheduledAt = firstUpdate.lastScheduledAt;
+    expect(lastScheduledAt).toBeDefined();
+
+    // Clear mocks
+    vi.clearAllMocks();
+
+    // Simulate a restart by creating a new task instance
+    const newTask = new ScheduledJobsTask({
+      logger: new EmptyLogger(),
+      storage,
+      stateMachine,
+      leaderElection: leader,
+      pollInterval: defaultValues.pollInterval,
+      scheduledJobMaxStaleAge: defaultValues.schedulerJobMaxStaleAge,
+    });
+
+    // Try to execute with the new task instance
+    await newTask.execute();
+
+    // Should not have executed again because lastScheduledAt is still set
+    expect(stateMachine.enqueue).not.toHaveBeenCalled();
+    expect(storage.updateScheduledJob).not.toHaveBeenCalled();
+
+    // Advance time to the next minute
+    await vi.advanceTimersByTimeAsync(60000);
+
+    // Now it should execute
+    await newTask.execute();
+    expect(stateMachine.enqueue).toHaveBeenCalledTimes(1);
+    expect(storage.updateScheduledJob).toHaveBeenCalledWith(scheduledJobId, {
+      lastScheduledAt: expect.any(Date),
+      nextRunAt: expect.any(Date),
+    });
+  });
 });

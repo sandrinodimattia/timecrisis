@@ -846,6 +846,56 @@ describe('SQLiteJobStorage', () => {
       expect(saved1?.data).toEqual({ test: 'data1' });
       expect(saved2?.data).toEqual({ test: 'data2' });
     });
+
+    it('should preserve existing values when upserting a scheduled job', async () => {
+      const now = new Date();
+      const lastScheduledAt = new Date(now.getTime() - 1000);
+      const nextRunAt = new Date(now.getTime() + 1000);
+
+      // Create initial job with all fields
+      const job1 = {
+        name: 'test-job',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+        enabled: true,
+        lastScheduledAt,
+        nextRunAt,
+        timeZone: 'UTC',
+      };
+
+      // Create first job
+      const id1 = await storage.createScheduledJob(job1);
+      const saved1 = await storage.getScheduledJob(id1);
+      expect(saved1).toBeDefined();
+      expect(saved1?.data).toEqual({ test: 'data1' });
+      expect(saved1?.lastScheduledAt?.toISOString()).toBe(lastScheduledAt.toISOString());
+      expect(saved1?.nextRunAt?.toISOString()).toBe(nextRunAt.toISOString());
+      expect(saved1?.timeZone).toBe('UTC');
+
+      // Create second job with same name and type but minimal fields
+      const job2 = {
+        name: 'test-job',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 0 * * *',
+        data: { test: 'data2' },
+      };
+
+      const id2 = await storage.createScheduledJob(job2);
+      expect(id2).toBe(id1); // Should return same ID
+
+      // Verify the job was updated but preserved existing values
+      const saved2 = await storage.getScheduledJob(id1);
+      expect(saved2).toBeDefined();
+      expect(saved2?.data).toEqual({ test: 'data2' }); // New data
+      expect(saved2?.scheduleValue).toBe('0 0 * * *'); // New schedule
+      expect(saved2?.lastScheduledAt?.toISOString()).toBe(lastScheduledAt.toISOString()); // Preserved
+      expect(saved2?.nextRunAt?.toISOString()).toBe(nextRunAt.toISOString()); // Preserved
+      expect(saved2?.timeZone).toBe('UTC'); // Preserved
+      expect(saved2?.enabled).toBe(true); // Preserved
+    });
   });
 
   describe('Dead Letter Queue', () => {
