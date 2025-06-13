@@ -349,6 +349,8 @@ export const SQLiteStatements = {
   insertWorker: `
     INSERT INTO workers (name, first_seen, last_heartbeat)
     VALUES (@name, @first_seen, @last_heartbeat)
+    ON CONFLICT(name) DO UPDATE SET
+      last_heartbeat = excluded.last_heartbeat
   `,
 
   updateWorkerHeartbeat: `

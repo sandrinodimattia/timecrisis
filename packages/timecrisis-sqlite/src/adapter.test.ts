@@ -1081,6 +1081,26 @@ describe('SQLiteJobStorage', () => {
       expect(savedWorker?.last_heartbeat).toBeInstanceOf(Date);
     });
 
+    it('should upsert worker and preserve first_seen', async () => {
+      // First registration
+      const firstSeen = new Date();
+      await storage.registerWorker({ name: 'worker-1' });
+
+      // Get the worker and verify first_seen
+      const worker1 = await storage.getWorker('worker-1');
+      expect(worker1?.first_seen.getTime()).toBeGreaterThanOrEqual(firstSeen.getTime());
+
+      // Wait a bit and register again
+      const tenSecondsLater = new Date(firstSeen.getTime() + 1000 * 10);
+      vi.setSystemTime(tenSecondsLater);
+      await storage.registerWorker({ name: 'worker-1' });
+
+      // Get the worker again and verify first_seen is preserved but last_heartbeat is updated
+      const worker2 = await storage.getWorker('worker-1');
+      expect(worker2?.first_seen.getTime()).toBe(worker1?.first_seen.getTime());
+      expect(worker2?.last_heartbeat.getTime()).toEqual(tenSecondsLater.getTime());
+    });
+
     it('should update worker heartbeat', async () => {
       await storage.registerWorker({ name: 'worker-1' });
       const newHeartbeat = new Date();
