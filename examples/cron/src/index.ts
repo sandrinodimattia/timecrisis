@@ -1,19 +1,12 @@
 import { pino } from 'pino';
-import Database from 'better-sqlite3';
-
-import { SQLiteJobStorage } from '@timecrisis/timecrisis-sqlite';
-import { JobScheduler, PinoLogger } from '@timecrisis/timecrisis';
+import { JobScheduler, InMemoryJobStorage, PinoLogger } from '@timecrisis/timecrisis';
 
 import { sendEmailJob } from './jobs/send-email';
 
 const runScheduler = async () => {
   const logger = pino({ name: 'basic-example' });
 
-  const db = new Database('db.sqlite');
-  db.pragma('journal_mode = WAL');
-  db.pragma('busy_timeout = 5000');
-
-  const storage = new SQLiteJobStorage(db);
+  const storage = new InMemoryJobStorage();
   await storage.init();
 
   // Instantiate the scheduler
@@ -31,12 +24,15 @@ const runScheduler = async () => {
     jobLockTTL: 300000,
     // This process will acquire the leader lock for 30 seconds
     leaderLockTTL: 30000, // 30 seconds
+    // Look for scheduled jobs which need to be planned every 1 second
+    jobSchedulingInterval: 1000,
     // Unique identifier for this scheduler instance
     worker: 'node-1',
   });
 
   // Register the sendEmail job
   scheduler.registerJob(sendEmailJob);
+  logger.info(`Registered job type: ${sendEmailJob.type}`);
 
   // Start the scheduler
   await scheduler.start();
@@ -49,11 +45,10 @@ const runScheduler = async () => {
     body: 'This is a test email sent from the job scheduler.',
   };
 
-  const jobId = await scheduler.enqueue('sendEmail', jobData, {
-    priority: 5,
-    maxRetries: 5,
-    entityId: '123',
-    expiresIn: '120s',
+  const jobId = await scheduler.schedule('newsletter-cron', 'sendEmail', jobData, {
+    scheduleValue: '29 19 * * *',
+    scheduleType: 'cron',
+    timeZone: 'Europe/Paris',
   });
 
   logger.info(`Enqueued sendEmail job with ID: ${jobId}`);

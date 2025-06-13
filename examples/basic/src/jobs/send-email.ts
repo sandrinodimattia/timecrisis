@@ -17,11 +17,9 @@ export const sendEmailJob: JobDefinition<typeof schema> = {
   priority: 10,
   schema,
   handle: async (data: z.infer<typeof schema>, ctx: JobContext) => {
-    logger.info({ data, ctx }, 'Sending email');
+    logger.info({ data }, 'Sending email');
 
     // Persist the log.
-    await ctx.log('info', `Email sent: ${data.subject}`);
-
-    throw new Error('Test error');
+    await ctx.persistLog('info', `Email sent: ${data.subject}`);
   },
 };
