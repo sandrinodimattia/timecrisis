@@ -1,3 +1,4 @@
+import { delay } from '../../lib/utils.js';
 import { Logger } from '../../logger/index.js';
 import { PendingJobsContext } from './types.js';
 import { createJobPipeline } from './middlewares.js';
@@ -110,10 +111,12 @@ export class PendingJobsTask {
       logger: this.logger,
     };
 
-    // Process them in parallel (or in series, if you prefer)
+    // Run them in parallel, but scatter the execution over time.
     await Promise.all(
-      validPendingJobs.map(({ job, jobDef }) => {
-        // The pipeline itself handles concurrency checks & errors
+      validPendingJobs.map(async ({ job, jobDef }, index) => {
+        if (index) {
+          await delay(25 * index);
+        }
         return this.processJob(ctx, job, jobDef);
       })
     );
