@@ -381,7 +381,7 @@ When you enqueue a job using `scheduler.enqueue()`, you can provide an optional 
 | `priority`        | `number`                      | A priority level for this specific job instance, from `-20` (lowest) to `20` (highest). This overrides the default `priority` set in the `JobDefinition`. Jobs with higher priority are processed first.       | `JobDefinition`'s `priority` (or `1`)                    |
 | `maxRetries`      | `number`                      | The maximum number of times this job will be retried if it fails. After exhausting all retries, the job is moved to the dead-letter queue.                                                                     | `JobDefinition`'s `maxRetries` (or `0`)                  |
 | `backoffStrategy` | `'exponential'` \| `'linear'` | The strategy for calculating the delay between retries. `'exponential'` doubles the delay with each attempt, while `'linear'` uses a constant delay. This overrides the default `backoffStrategy`.             | `JobDefinition`'s `backoffStrategy` (or `'exponential'`) |
-| `entityId`        | `string`                      | An optional identifier to associate this job with a specific entity (e.g., a user ID, a document ID). This can be useful for querying or grouping jobs related to the same entity.                             | `undefined`                                              |
+| `referenceId`     | `string`                      | An optional identifier to associate this job with a specific reference (e.g., a user ID, a document ID). This can be useful for querying or grouping jobs related to the same entity.                          | `undefined`                                              |
 | `expiresAt`       | `Date`                        | A specific `Date` object after which the job should be considered expired. If the job has not started by this time, it will be automatically failed and will not run. This is useful for time-sensitive tasks. | `undefined`                                              |
 | `expiresIn`       | `string`                      | A duration string (e.g., `'5m'`, `'2h'`, `'10s'`) specifying how long from now until the job expires. This is a convenient alternative to `expiresAt`. If both are provided, `expiresIn` takes precedence.     | `undefined`                                              |
 
@@ -406,7 +406,7 @@ async function sendPasswordResetEmail(userId: string, email: string) {
         priority: 15, // This is an important email, process it quickly.
         maxRetries: 2, // Only try a couple of times.
         backoffStrategy: 'linear', // Use a simple 10-second delay between retries.
-        entityId: userId, // Associate this job with the user's ID.
+        referenceId: userId, // Associate this job with the user's ID.
         expiresIn: '5m', // The password reset link is only valid for a short time.
       }
     );

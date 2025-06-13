@@ -224,7 +224,7 @@ describe('JobScheduler', () => {
       const metrics = await scheduler.getMetrics();
       expect(metrics.completed).toBeGreaterThan(0);
 
-      // Verify the job was created with the correct entity ID
+      // Verify the job was created with the correct reference ID
       const jobs = await storage.listJobs();
       const createdJob = jobs.find((job) => job.type === 'test-job');
       expect(createdJob).toBeDefined();

@@ -109,7 +109,7 @@ export class JobStateMachine {
       data: validData,
       maxRetries: options.maxRetries,
       priority: options.priority ?? job.priority,
-      entityId: options.entityId,
+      referenceId: options.referenceId,
       scheduledJobId: options.scheduledJobId,
       expiresAt,
       backoffStrategy: options.backoffStrategy,

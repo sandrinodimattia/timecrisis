@@ -5,7 +5,7 @@ export function up(db: Database): void {
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
       scheduled_job_id TEXT,
-      entity_id TEXT,
+      reference_id TEXT,
       status TEXT NOT NULL CHECK (status IN ('pending', 'running', 'completed', 'failed', 'canceled')),
       type TEXT NOT NULL,
       data TEXT NOT NULL,
@@ -113,25 +113,19 @@ export function up(db: Database): void {
   `);
 
   db.exec(`
-    CREATE INDEX idx_jobs_entity ON jobs(entity_id);
-    CREATE INDEX idx_jobs_entity_type ON jobs(entity_id, type);
-
+    CREATE INDEX idx_jobs_reference ON jobs(reference_id);
+    CREATE INDEX idx_jobs_reference_type ON jobs(reference_id, type);
     CREATE INDEX idx_jobs_type ON jobs(type);
     CREATE INDEX idx_jobs_status ON jobs(status);
     CREATE INDEX idx_jobs_expires ON jobs(expires_at);
     CREATE INDEX idx_jobs_status_priority ON jobs(status, priority);
-
     CREATE INDEX idx_logs_job ON job_logs(job_id);
     CREATE INDEX idx_logs_run ON job_logs(job_run_id);
-
     CREATE INDEX idx_runs_job ON job_runs(job_id);
     CREATE INDEX idx_job_runs_status ON job_runs(status);
-
     CREATE INDEX idx_locks_worker ON distributed_locks(worker);
     CREATE INDEX idx_locks_expires ON distributed_locks(expires_at);
-
     CREATE INDEX idx_dead_letter_job ON dead_letter_jobs(job_id);
-
     CREATE INDEX idx_scheduled_enabled ON scheduled_jobs(enabled);
     CREATE INDEX idx_scheduled_next ON scheduled_jobs(next_run_at);
   `);

@@ -510,7 +510,7 @@ export class InMemoryJobStorage implements JobStorage {
     }
 
     if (query?.referenceId) {
-      jobs = jobs.filter((job) => job.entityId === query.referenceId);
+      jobs = jobs.filter((job) => job.referenceId === query.referenceId);
     }
 
     if (query?.runAtBefore) {

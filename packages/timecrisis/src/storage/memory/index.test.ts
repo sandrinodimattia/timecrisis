@@ -25,7 +25,7 @@ describe('InMemoryJobStorage', () => {
       const jobData: Omit<Job, 'id' | 'createdAt' | 'updatedAt'> = {
         type: 'test-job',
         status: 'pending',
-        entityId: 'ref-123',
+        referenceId: 'ref-123',
         data: {},
         priority: 1,
         maxRetries: 3,
@@ -40,7 +40,7 @@ describe('InMemoryJobStorage', () => {
       expect(job).toBeDefined();
       expect(job?.type).toBe(jobData.type);
       expect(job?.status).toBe(jobData.status);
-      expect(job?.entityId).toBe(jobData.entityId);
+      expect(job?.referenceId).toBe(jobData.referenceId);
       expect(job?.createdAt).toBeInstanceOf(Date);
       expect(job?.updatedAt).toBeInstanceOf(Date);
     });

@@ -189,7 +189,7 @@ export interface EnqueueOptions {
   /**
    * Reference ID for grouping jobs (e.g., by user or entity).
    **/
-  entityId?: string;
+  referenceId?: string;
 
   /**
    * ID of the scheduled job that created this job, if any.

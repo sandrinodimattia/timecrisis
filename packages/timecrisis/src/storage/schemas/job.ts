@@ -25,9 +25,9 @@ export const JobSchema = z.object({
   type: z.string(),
 
   /**
-   * Entity ID for grouping jobs. This is the ID of the user, the file, ...
+   * Reference ID for grouping jobs. This is the ID of the user, the file, ...
    */
-  entityId: z.string().nullable().optional(),
+  referenceId: z.string().nullable().optional(),
 
   /**
    * ID of the scheduled job that created this job, if any.

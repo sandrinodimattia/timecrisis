@@ -10,7 +10,7 @@ export const SQLiteStatements = {
       backoff_strategy,
       fail_reason,
       fail_count,
-      entity_id,
+      reference_id,
       scheduled_job_id,
       expires_at,
       started_at,
@@ -28,7 +28,7 @@ export const SQLiteStatements = {
       @backoff_strategy,
       @fail_reason,
       @fail_count,
-      @entity_id,
+      @reference_id,
       @scheduled_job_id,
       @expires_at,
       @started_at,
@@ -54,7 +54,7 @@ export const SQLiteStatements = {
       backoff_strategy = @backoff_strategy,
       fail_reason = @fail_reason,
       fail_count = @fail_count,
-      entity_id = @entity_id,
+      reference_id = @reference_id,
       scheduled_job_id = @scheduled_job_id,
       expires_at = @expires_at,
       started_at = @started_at,
@@ -72,7 +72,7 @@ export const SQLiteStatements = {
     SELECT *
     FROM jobs
     WHERE (@type IS NULL OR type = @type)
-      AND (@entityId IS NULL OR entity_id = @entityId)
+      AND (@referenceId IS NULL OR reference_id = @referenceId)
       AND (run_at IS NULL OR (@runAtBefore IS NULL OR run_at <= @runAtBefore))
       AND (@status IS NULL OR status IN (SELECT value FROM json_each(@status)))
       AND (@expiresAtBefore IS NULL OR (expires_at IS NOT NULL AND expires_at <= @expiresAtBefore))

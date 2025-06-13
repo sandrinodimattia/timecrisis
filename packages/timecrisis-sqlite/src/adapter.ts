@@ -252,7 +252,7 @@ export class SQLiteJobStorage implements JobStorage {
       backoff_strategy: newJob.backoffStrategy,
       fail_reason: newJob.failReason ?? null,
       fail_count: newJob.failCount,
-      entity_id: newJob.entityId ?? null,
+      reference_id: newJob.referenceId ?? null,
       scheduled_job_id: newJob.scheduledJobId ?? null,
       expires_at: fromDate(newJob.expiresAt),
       started_at: fromDate(newJob.startedAt),
@@ -312,7 +312,7 @@ export class SQLiteJobStorage implements JobStorage {
       backoff_strategy: updatedJob.backoffStrategy,
       fail_reason: updatedJob.failReason ?? null,
       fail_count: updatedJob.failCount,
-      entity_id: updatedJob.entityId ?? null,
+      reference_id: updatedJob.referenceId ?? null,
       scheduled_job_id: updatedJob.scheduledJobId ?? null,
       expires_at: fromDate(updatedJob.expiresAt),
       started_at: fromDate(updatedJob.startedAt),
@@ -422,7 +422,7 @@ export class SQLiteJobStorage implements JobStorage {
   async listJobs(filter?: {
     status?: string[];
     type?: string;
-    entityId?: string;
+    referenceId?: string;
     runAtBefore?: Date;
     limit?: number;
     expiresAtBefore?: Date;
@@ -430,7 +430,7 @@ export class SQLiteJobStorage implements JobStorage {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
       type: filter?.type || null,
-      entityId: filter?.entityId || null,
+      referenceId: filter?.referenceId || null,
       runAtBefore: filter?.runAtBefore ? fromDate(filter.runAtBefore) : null,
       limit: filter?.limit || null,
       status: filter?.status ? JSON.stringify(filter.status) : null,
@@ -1022,7 +1022,7 @@ export class SQLiteJobStorage implements JobStorage {
       backoffStrategy: row.backoff_strategy,
       failReason: row.fail_reason ?? undefined,
       failCount: row.fail_count,
-      entityId: row.entity_id ?? undefined,
+      referenceId: row.reference_id ?? undefined,
       expiresAt: toDate(row.expires_at) ?? undefined,
       startedAt: toDate(row.started_at) ?? undefined,
       runAt: toDate(row.run_at) ?? undefined,

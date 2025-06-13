@@ -56,7 +56,7 @@ export const defaultValues = {
 
 export const defaultJob: CreateJob = {
   type: 'test',
-  entityId: 'ref-123',
+  referenceId: 'ref-123',
   data: {
     test: true,
   },

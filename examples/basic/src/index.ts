@@ -46,7 +46,7 @@ const runScheduler = async () => {
   const jobId = await scheduler.enqueue('sendEmail', jobData, {
     priority: 15,
     maxRetries: 5,
-    entityId: '123',
+    referenceId: '123',
     expiresIn: '20s',
   });
 

@@ -30,7 +30,7 @@ describe('SQLiteJobStorage', () => {
     it('should create and retrieve a job', async () => {
       const jobData = {
         type: 'test-job',
-        entityId: 'user-123',
+        referenceId: 'user-123',
         data: { test: 'data' },
         priority: 10,
         status: 'pending' as const,
@@ -52,7 +52,7 @@ describe('SQLiteJobStorage', () => {
 
       // Verify all fields
       expect(job?.type).toBe(jobData.type);
-      expect(job?.entityId).toBe(jobData.entityId);
+      expect(job?.referenceId).toBe(jobData.referenceId);
       expect(job?.data).toEqual(jobData.data);
       expect(job?.priority).toBe(jobData.priority);
       expect(job?.status).toBe(jobData.status);
@@ -75,7 +75,7 @@ describe('SQLiteJobStorage', () => {
       // First create a job
       const jobId = await storage.createJob({
         type: 'test-job',
-        entityId: 'user-123',
+        referenceId: 'user-123',
         data: { test: 'data' },
         priority: 1,
         status: 'pending',
@@ -86,7 +86,7 @@ describe('SQLiteJobStorage', () => {
 
       // Update with all possible fields
       const updates = {
-        entityId: 'user-456',
+        referenceId: 'user-456',
         data: { test: 'updated' },
         priority: 15,
         status: 'running' as const,
@@ -105,7 +105,7 @@ describe('SQLiteJobStorage', () => {
       const job = await storage.getJob(jobId);
 
       // Verify all updated fields
-      expect(job?.entityId).toBe(updates.entityId);
+      expect(job?.referenceId).toBe(updates.referenceId);
       expect(job?.data).toEqual(updates.data);
       expect(job?.priority).toBe(updates.priority);
       expect(job?.status).toBe(updates.status);
@@ -168,7 +168,7 @@ describe('SQLiteJobStorage', () => {
           maxRetries: 3,
           backoffStrategy: 'exponential',
           runAt: new Date(now.getTime() + 1000),
-          entityId: 'ref-1',
+          referenceId: 'ref-1',
         }),
         storage.createJob({
           type: 'type-1',
@@ -178,7 +178,7 @@ describe('SQLiteJobStorage', () => {
           maxRetries: 3,
           backoffStrategy: 'exponential',
           runAt: new Date(now.getTime() + 2000),
-          entityId: 'ref-2',
+          referenceId: 'ref-2',
         }),
         storage.createJob({
           type: 'type-2',
@@ -188,7 +188,7 @@ describe('SQLiteJobStorage', () => {
           maxRetries: 3,
           backoffStrategy: 'exponential',
           runAt: new Date(now.getTime() + 3000),
-          entityId: 'ref-1',
+          referenceId: 'ref-1',
         }),
       ]);
 
@@ -196,14 +196,14 @@ describe('SQLiteJobStorage', () => {
       const pendingAndRunning = await storage.listJobs({ status: ['pending', 'running'] });
       expect(pendingAndRunning).toHaveLength(3);
 
-      // Test type and entityId combination
+      // Test type and referenceId combination
       const type1Ref1Jobs = await storage.listJobs({
         type: 'type-1',
-        entityId: 'ref-1',
+        referenceId: 'ref-1',
       });
       expect(type1Ref1Jobs).toHaveLength(1);
       expect(type1Ref1Jobs[0].type).toBe('type-1');
-      expect(type1Ref1Jobs[0].entityId).toBe('ref-1');
+      expect(type1Ref1Jobs[0].referenceId).toBe('ref-1');
 
       // Test runAt filtering
       const futureRunAt = new Date(now.getTime() + 2500);
@@ -259,11 +259,11 @@ describe('SQLiteJobStorage', () => {
     it('should handle special characters and SQL injection attempts in filters', async () => {
       const jobId = await storage.createJob({
         ...defaultJob,
-        entityId: "ref-1'; DROP TABLE jobs; --",
+        referenceId: "ref-1'; DROP TABLE jobs; --",
       });
 
       const jobs = await storage.listJobs({
-        entityId: "ref-1'; DROP TABLE jobs; --",
+        referenceId: "ref-1'; DROP TABLE jobs; --",
       });
       expect(jobs).toHaveLength(1);
       expect(jobs[0].id).toBe(jobId);
@@ -282,7 +282,7 @@ describe('SQLiteJobStorage', () => {
       // Test with undefined values
       const jobsWithUndefinedFilters = await storage.listJobs({
         type: defaultJob.type,
-        entityId: defaultJob.entityId!,
+        referenceId: defaultJob.referenceId!,
         runAtBefore: undefined,
       });
       expect(jobsWithUndefinedFilters).toHaveLength(1);
