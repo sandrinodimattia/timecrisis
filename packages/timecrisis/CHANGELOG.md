@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.11.0
+
+### Minor Changes
+
+- 63f0330: feat: get job settings from definition if not provided when enqueueing job
+
 ## 0.10.0
 
 ### Minor Changes

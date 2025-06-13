@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.11.0
+
+### Minor Changes
+
+- 63f0330: feat: get job settings from definition if not provided when enqueueing job
+
+### Patch Changes
+
+- Updated dependencies [63f0330]
+  - @timecrisis/timecrisis@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes
