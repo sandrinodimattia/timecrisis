@@ -75,24 +75,21 @@ export class SQLiteJobStorage implements JobStorage {
   private stmtInsertScheduledJob!: ReturnType<Database['prepare']>;
   private stmtSelectScheduledJobById!: ReturnType<Database['prepare']>;
   private stmtUpdateScheduledJob!: ReturnType<Database['prepare']>;
-  private stmtDeleteScheduledJob!: ReturnType<Database['prepare']>;
   private stmtSelectAllScheduledJobs!: ReturnType<Database['prepare']>;
   private stmtSelectFilteredScheduledJobs!: ReturnType<Database['prepare']>;
   private stmtInsertDeadLetterJob!: ReturnType<Database['prepare']>;
   private stmtSelectAllDeadLetterJobs!: ReturnType<Database['prepare']>;
   private stmtDeleteDeadLetterBefore!: ReturnType<Database['prepare']>;
   private stmtListLocks!: ReturnType<Database['prepare']>;
-  private stmtSelectLock!: ReturnType<Database['prepare']>;
   private stmtInsertLock!: ReturnType<Database['prepare']>;
   private stmtUpdateLock!: ReturnType<Database['prepare']>;
   private stmtDeleteLock!: ReturnType<Database['prepare']>;
-  private stmtDeleteExpiredLocks!: ReturnType<Database['prepare']>;
   private stmtCleanupCompleted!: ReturnType<Database['prepare']>;
   private stmtCleanupFailed!: ReturnType<Database['prepare']>;
   private stmtJobCounts!: ReturnType<Database['prepare']>;
   private stmtAvgDuration!: ReturnType<Database['prepare']>;
   private stmtFailureRate!: ReturnType<Database['prepare']>;
-  private stmtUpsertTypeSlot!: ReturnType<Database['prepare']>;
+  private stmtInsertTypeSlot!: ReturnType<Database['prepare']>;
   private stmtDecrementTypeSlot!: ReturnType<Database['prepare']>;
   private stmtDeleteEmptyTypeSlots!: ReturnType<Database['prepare']>;
   private stmtDeleteWorkerTypeSlots!: ReturnType<Database['prepare']>;
@@ -114,17 +111,21 @@ export class SQLiteJobStorage implements JobStorage {
    * This will run any pending migrations and prepare all SQL statements
    * for improved performance
    */
-  async init(): Promise<void> {
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const migrator = new Migrator({
-      db: this.db,
-      migrationsDir: path.join(__dirname, 'migrations'),
-    });
+  async init(
+    { runMigrations }: { runMigrations?: boolean } = { runMigrations: true }
+  ): Promise<void> {
+    if (runMigrations) {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const migrator = new Migrator({
+        db: this.db,
+        migrationsDir: path.join(__dirname, 'migrations'),
+      });
 
-    const result = await migrator.apply();
-    if (result.error) {
-      throw result.error;
+      const result = await migrator.apply();
+      if (result.error) {
+        throw result.error;
+      }
     }
 
     // Now prepare statements
@@ -148,7 +149,6 @@ export class SQLiteJobStorage implements JobStorage {
     this.stmtInsertScheduledJob = this.db.prepare(SQL.insertScheduledJob);
     this.stmtSelectScheduledJobById = this.db.prepare(SQL.selectScheduledJobById);
     this.stmtUpdateScheduledJob = this.db.prepare(SQL.updateScheduledJob);
-    this.stmtDeleteScheduledJob = this.db.prepare(SQL.deleteScheduledJob);
     this.stmtSelectAllScheduledJobs = this.db.prepare(SQL.selectAllScheduledJobs);
     this.stmtSelectFilteredScheduledJobs = this.db.prepare(SQL.selectFilteredScheduledJobs);
 
@@ -157,11 +157,9 @@ export class SQLiteJobStorage implements JobStorage {
     this.stmtDeleteDeadLetterBefore = this.db.prepare(SQL.deleteDeadLetterBefore);
 
     this.stmtListLocks = this.db.prepare(SQL.listLocks);
-    this.stmtSelectLock = this.db.prepare(SQL.selectLock);
     this.stmtInsertLock = this.db.prepare(SQL.insertLock);
     this.stmtUpdateLock = this.db.prepare(SQL.updateLock);
     this.stmtDeleteLock = this.db.prepare(SQL.deleteLock);
-    this.stmtDeleteExpiredLocks = this.db.prepare(SQL.deleteExpiredLocks);
 
     this.stmtCleanupCompleted = this.db.prepare(SQL.cleanupCompleted);
     this.stmtCleanupFailed = this.db.prepare(SQL.cleanupFailed);
@@ -170,7 +168,7 @@ export class SQLiteJobStorage implements JobStorage {
     this.stmtAvgDuration = this.db.prepare(SQL.avgDuration);
     this.stmtFailureRate = this.db.prepare(SQL.failureRate);
 
-    this.stmtUpsertTypeSlot = this.db.prepare(SQL.upsertJobTypeSlot);
+    this.stmtInsertTypeSlot = this.db.prepare(SQL.upsertJobTypeSlot);
     this.stmtDecrementTypeSlot = this.db.prepare(SQL.decrementJobTypeSlot);
     this.stmtDeleteEmptyTypeSlots = this.db.prepare(SQL.deleteEmptyJobTypeSlots);
     this.stmtDeleteWorkerTypeSlots = this.db.prepare(SQL.deleteWorkerJobTypeSlots);
@@ -202,6 +200,7 @@ export class SQLiteJobStorage implements JobStorage {
     const wrapped = this.db.transaction((_: unknown) => {
       return fn(null);
     });
+
     return wrapped(null);
   }
 
@@ -408,6 +407,7 @@ export class SQLiteJobStorage implements JobStorage {
     entityId?: string;
     runAtBefore?: Date;
     limit?: number;
+    expiresAtBefore?: Date;
   }): Promise<Job[]> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const params: any = {
@@ -416,6 +416,7 @@ export class SQLiteJobStorage implements JobStorage {
       runAtBefore: filter?.runAtBefore ? fromDate(filter.runAtBefore) : null,
       limit: filter?.limit || null,
       status: filter?.status ? JSON.stringify(filter.status) : null,
+      expiresAtBefore: filter?.expiresAtBefore ? fromDate(filter.expiresAtBefore) : null,
     };
 
     const rows = this.stmtSelectFilteredJobs.all(params);
@@ -485,6 +486,7 @@ export class SQLiteJobStorage implements JobStorage {
       type: newJob.type,
       schedule_type: newJob.scheduleType,
       schedule_value: newJob.scheduleValue,
+      time_zone: newJob.timeZone ?? null,
       data: dataStr,
       enabled: fromBoolean(newJob.enabled),
       last_scheduled_at: fromDate(newJob.lastScheduledAt),
@@ -524,6 +526,7 @@ export class SQLiteJobStorage implements JobStorage {
       type: updated.type,
       schedule_type: updated.scheduleType,
       schedule_value: updated.scheduleValue,
+      time_zone: updated.timeZone ?? null,
       data: dataStr,
       enabled: fromBoolean(updated.enabled),
       last_scheduled_at: fromDate(updated.lastScheduledAt),
@@ -619,11 +622,10 @@ export class SQLiteJobStorage implements JobStorage {
    * @returns True if the lock was acquired, false otherwise
    */
   async acquireLock(lockId: string, worker: string, ttlMs: number): Promise<boolean> {
-    return this.transaction(async () => {
-      // Calculate lock expiry time
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + ttlMs);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlMs);
 
+    return this.transaction(async () => {
       // Create new lock
       const res = this.stmtInsertLock.run({
         id: lockId,
@@ -645,11 +647,10 @@ export class SQLiteJobStorage implements JobStorage {
    * @returns True if the lock was renewed, false otherwise
    */
   async renewLock(lockId: string, worker: string, ttlMs: number): Promise<boolean> {
-    return this.transaction(async () => {
-      // Calculate new lock expiry time
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + ttlMs);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlMs);
 
+    return this.transaction(async () => {
       // Update lock expiry
       const res = this.stmtUpdateLock.run({
         lockId,
@@ -683,10 +684,12 @@ export class SQLiteJobStorage implements JobStorage {
    * @returns An array of objects with lock details, each containing lockId, worker, and expiresAt
    */
   async listLocks(filters?: {
-    worker?: string | undefined;
+    worker?: string;
+    expiredBefore?: Date;
   }): Promise<{ lockId: string; worker: string; expiresAt: Date }[]> {
     const rows = this.stmtListLocks.all({
       worker: filters?.worker,
+      expiredBefore: filters?.expiredBefore ? fromDate(filters.expiredBefore) : null,
     });
     return rows.map((r) => this.mapRowToLock(r));
   }
@@ -700,24 +703,22 @@ export class SQLiteJobStorage implements JobStorage {
     failedJobRetention: number;
     deadLetterRetention: number;
   }): Promise<void> {
-    return this.transaction(async () => {
-      const now = new Date();
-      const DAY = 24 * 60 * 60 * 1000;
+    const now = new Date();
+    const DAY = 24 * 60 * 60 * 1000;
 
-      // Clean up completed jobs based on retention period
-      this.stmtCleanupCompleted.run({
-        updated_at: fromDate(new Date(now.getTime() - options.jobRetention * DAY)),
-      });
+    // Clean up completed jobs based on retention period
+    this.stmtCleanupCompleted.run({
+      updated_at: fromDate(new Date(now.getTime() - options.jobRetention * DAY)),
+    });
 
-      // Clean up failed jobs based on retention period
-      this.stmtCleanupFailed.run({
-        updated_at: fromDate(new Date(now.getTime() - options.failedJobRetention * DAY)),
-      });
+    // Clean up failed jobs based on retention period
+    this.stmtCleanupFailed.run({
+      updated_at: fromDate(new Date(now.getTime() - options.failedJobRetention * DAY)),
+    });
 
-      // Clean up dead letter jobs based on retention period
-      this.stmtDeleteDeadLetterBefore.run({
-        failed_at: fromDate(new Date(now.getTime() - options.deadLetterRetention * DAY)),
-      });
+    // Clean up dead letter jobs based on retention period
+    this.stmtDeleteDeadLetterBefore.run({
+      failed_at: fromDate(new Date(now.getTime() - options.deadLetterRetention * DAY)),
     });
   }
 
@@ -726,12 +727,10 @@ export class SQLiteJobStorage implements JobStorage {
    * @param jobId - Unique identifier of the job to delete
    */
   async deleteJobAndRelatedData(jobId: string): Promise<void> {
-    return this.transaction(async () => {
-      // Delete all related data in a single transaction
-      this.stmtDeleteJobLogsByJobId.run(jobId);
-      this.stmtDeleteJobRunsByJobId.run(jobId);
-      this.stmtDeleteJob.run(jobId);
-    });
+    // Delete all related data in a single transaction
+    this.stmtDeleteJobLogsByJobId.run(jobId);
+    this.stmtDeleteJobRunsByJobId.run(jobId);
+    this.stmtDeleteJob.run(jobId);
   }
 
   /**
@@ -779,21 +778,33 @@ export class SQLiteJobStorage implements JobStorage {
    * @returns True if the slot was acquired, false otherwise
    */
   async acquireTypeSlot(jobType: string, worker: string, maxConcurrent: number): Promise<boolean> {
-    return this.transaction(async () => {
-      // Get total slots used for this job type
-      const totalSlots = this.stmtGetTotalRunningJobsByType.get(jobType) as { total: number };
-      if (totalSlots.total >= maxConcurrent) {
+    try {
+      const result = await this.transaction(async () => {
+        // Get total slots used for this job type
+        const totalSlots = this.stmtGetTotalRunningJobsByType.get(jobType) as { total: number };
+        if (totalSlots.total >= maxConcurrent) {
+          return false;
+        }
+
+        const res = this.stmtInsertTypeSlot.run({
+          job_type: jobType,
+          worker: worker,
+          max_concurrent: maxConcurrent,
+        });
+        // If changes > 0, we successfully inserted/updated a slot
+        return res.changes > 0;
+      });
+      return result;
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes('SQLITE_BUSY') ||
+          error.message.includes('cannot start a transaction within a transaction'))
+      ) {
         return false;
       }
-
-      // Increment the slot count for this worker
-      this.stmtUpsertTypeSlot.run({
-        job_type: jobType,
-        worker: worker,
-      });
-
-      return true;
-    });
+      throw error;
+    }
   }
 
   /**
