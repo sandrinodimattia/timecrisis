@@ -173,10 +173,10 @@ export class JobStateMachine {
     const executionDuration = new Date().getTime() - jobRun.startedAt.getTime();
 
     this.logger.debug(`Setting job run to completed`, {
-      jobId: job.id,
-      jobRunId: jobRunId,
+      job_id: job.id,
+      job_run_id: jobRunId,
       status: nextState,
-      executionDuration,
+      execution_duration: executionDuration,
     });
 
     // Mark success.
@@ -234,12 +234,12 @@ export class JobStateMachine {
     const executionDuration = jobRun ? new Date().getTime() - jobRun.startedAt.getTime() : 0;
 
     this.logger.warn('Job failed', {
-      job: job.id,
-      jobRun: jobRun?.id,
+      job_id: job.id,
+      job_run_id: jobRun?.id,
       type: job.type,
       error: errorMessage,
-      error_stack: errorStack,
-      executionDuration,
+      error_stack: errorStack ?? undefined,
+      execution_duration: executionDuration,
     });
 
     try {
@@ -265,12 +265,12 @@ export class JobStateMachine {
       const nextRun = new Date(Date.now() + delay);
 
       this.logger.warn(`Enqueuing retry for failed job in ${delay} ms`, {
-        job: job.id,
+        job_id: job.id,
         type: job.type,
         error: errorMessage,
-        executionDuration,
+        execution_duration: executionDuration,
         delay,
-        nextRun,
+        next_run: nextRun,
       });
 
       // Reset the job to pending for retry
@@ -293,12 +293,12 @@ export class JobStateMachine {
       });
     } else {
       this.logger.warn(`Job failed permanently due to error: ${errorMessage}`, {
-        job: job.id,
+        job_id: job.id,
         type: job.type,
         error: errorMessage,
-        errorStack: errorStack,
+        error_stack: errorStack ?? undefined,
         attempts: attempts,
-        maxRetries: job.maxRetries,
+        max_retries: job.maxRetries,
       });
 
       // Mark as failed if we've exceeded retries

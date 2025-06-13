@@ -97,7 +97,7 @@ export class PendingJobsTask {
         const definition = this.ctx.jobs.get(job.type);
         if (!definition) {
           this.logger.warn('Invalid job type, skipping job', {
-            jobId: job.id,
+            job_id: job.id,
             type: job.type,
           });
           return null;

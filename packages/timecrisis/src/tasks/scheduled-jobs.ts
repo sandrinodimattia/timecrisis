@@ -104,14 +104,14 @@ export class ScheduledJobsTask {
       });
 
       this.logger.debug('Checking for scheduled jobs which are due to run', {
-        scheduledJobs: scheduledJobs.length,
+        scheduled_jobs: scheduledJobs.length,
       });
 
       for (const job of scheduledJobs) {
         try {
           if (!job.enabled) {
             this.logger.debug('Skipping disabled job', {
-              jobId: job.id,
+              job_id: job.id,
               type: job.type,
             });
             continue;
@@ -125,18 +125,18 @@ export class ScheduledJobsTask {
           // If the job is stale, skip this execution and just update the next run time
           if (isStale) {
             this.logger.warn('Skipping stale job', {
-              jobId: job.id,
+              job_id: job.id,
               type: job.type,
-              nextRunAt: job.nextRunAt,
-              maxStaleAge: this.cfg.scheduledJobMaxStaleAge,
+              next_run_at: job.nextRunAt,
+              max_stale_age: this.cfg.scheduledJobMaxStaleAge,
             });
 
             const nextRun = this.getNextRunDate(job, now);
             if (nextRun) {
               this.logger.info('Updating job to simply run next time', {
-                jobId: job.id,
+                job_id: job.id,
                 type: job.type,
-                nextRunAt: nextRun,
+                next_run_at: nextRun,
               });
 
               await this.cfg.storage.updateScheduledJob(job.id, {
@@ -149,19 +149,19 @@ export class ScheduledJobsTask {
           // For cron jobs, check if we should run based on lastScheduledAt
           if (job.scheduleType === 'cron' && job.lastScheduledAt && job.lastScheduledAt > now) {
             this.logger.debug('Skipping job because lastScheduledAt is in the future', {
-              jobId: job.id,
+              job_id: job.id,
               type: job.type,
-              lastScheduledAt: job.lastScheduledAt,
+              last_scheduled_at: job.lastScheduledAt,
               now,
             });
             continue;
           }
 
           this.logger.info('Enqueing job', {
-            jobId: job.id,
+            job_id: job.id,
             type: job.type,
-            scheduleType: job.scheduleType,
-            scheduleValue: job.scheduleValue,
+            schedule_type: job.scheduleType,
+            schedule_value: job.scheduleValue,
           });
 
           // Execute the job
@@ -180,29 +180,29 @@ export class ScheduledJobsTask {
           if (job.scheduleType === 'exact') {
             updates.enabled = false;
             this.logger.debug('Disabling job after running once', {
-              jobId: job.id,
+              job_id: job.id,
               type: job.type,
-              scheduleType: job.scheduleType,
-              scheduleValue: job.scheduleValue,
+              schedule_type: job.scheduleType,
+              schedule_value: job.scheduleValue,
             });
           } else {
             // For interval and cron, calculate next run
             const nextRun = this.getNextRunDate(job, executionTime);
             if (nextRun) {
               this.logger.debug('Updating job schedule', {
-                jobId: job.id,
+                job_id: job.id,
                 type: job.type,
-                scheduleType: job.scheduleType,
-                scheduleValue: job.scheduleValue,
-                nextRunAt: nextRun,
+                schedule_type: job.scheduleType,
+                schedule_value: job.scheduleValue,
+                next_run_at: nextRun,
               });
               updates.nextRunAt = nextRun;
             } else if (job.scheduleType === 'cron') {
               // If we couldn't calculate the next run time for a cron job, skip execution
               this.logger.warn('Skipping job due to invalid cron expression', {
-                jobId: job.id,
+                job_id: job.id,
                 type: job.type,
-                scheduleValue: job.scheduleValue,
+                schedule_value: job.scheduleValue,
               });
               continue;
             }
@@ -250,8 +250,8 @@ export class ScheduledJobsTask {
         } catch (error) {
           this.logger.error('Failed to parse cron expression', {
             error: error instanceof Error ? error.message : String(error),
-            scheduleValue: job.scheduleValue,
-            timeZone: job.timeZone,
+            schedule_value: job.scheduleValue,
+            time_zone: job.timeZone,
           });
           return null;
         }

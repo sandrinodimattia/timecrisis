@@ -46,7 +46,7 @@ export class ConcurrencyManager {
   public acquire(jobId: string): boolean {
     if (this.runningJobs.size >= this.maxConcurrentJobs) {
       this.logger.debug('Concurrency limit reached, job cannot be run', {
-        jobId,
+        job_id: jobId,
         current: this.runningJobs.size,
         max: this.maxConcurrentJobs,
       });
@@ -55,7 +55,7 @@ export class ConcurrencyManager {
 
     this.runningJobs.add(jobId);
     this.logger.debug('Concurrency slot acquired', {
-      jobId,
+      job_id: jobId,
       current: this.runningJobs.size,
     });
     return true;
@@ -68,7 +68,7 @@ export class ConcurrencyManager {
     if (this.runningJobs.has(jobId)) {
       this.runningJobs.delete(jobId);
       this.logger.debug('Concurrency slot released', {
-        jobId,
+        job_id: jobId,
         current: this.runningJobs.size,
       });
     }

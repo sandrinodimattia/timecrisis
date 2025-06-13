@@ -41,7 +41,7 @@ export function limitExecutions(): Middleware {
     // Attempt to acquire a concurrency slot
     if (!concurrency.acquire(job.id)) {
       logger.debug('Failed to acquire concurrency slot for job', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
       });
       return;
@@ -73,14 +73,14 @@ export function limitExecutionsByType(): Middleware {
       typeSlotAcquired = await storage.acquireTypeSlot(job.type, ctx.worker, typeConcurrencyLimit);
       if (!typeSlotAcquired) {
         logger.debug(`Failed to acquire execution slot for job type "${job.type}"`, {
-          jobId: job.id,
+          job_id: job.id,
           type: job.type,
         });
         return;
       }
 
       logger.debug(`Execution slot for type "${job.type}" successfully acquired`, {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
       });
       await next();
@@ -88,7 +88,7 @@ export function limitExecutionsByType(): Middleware {
       // Release the job type slot (if it was acquired)
       if (typeSlotAcquired) {
         logger.debug('Releasing execution slot for job type', {
-          jobId: job.id,
+          job_id: job.id,
           type: job.type,
           worker: ctx.worker,
         });
@@ -113,14 +113,14 @@ export function distributedLockMiddleware(): Middleware {
       jobLock = await distributedLock.acquire(formatLockName(job.id));
       if (!jobLock) {
         logger.debug(`Failed to acquire job lock "${formatLockName(job.id)}"`, {
-          jobId: job.id,
+          job_id: job.id,
           type: job.type,
         });
         return;
       }
 
       logger.debug('Acquired lock to execute job', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
       });
 
@@ -130,7 +130,7 @@ export function distributedLockMiddleware(): Middleware {
         // Release the lock (if acquired)
         if (jobLock) {
           logger.debug('Releasing job lock', {
-            jobId: job.id,
+            job_id: job.id,
             type: job.type,
           });
           await jobLock.release();
@@ -139,7 +139,7 @@ export function distributedLockMiddleware(): Middleware {
     } catch (error) {
       let errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('Error performing job lock operation', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
         error: errorMessage,
         error_stack: error instanceof Error ? error.stack : undefined,
@@ -157,9 +157,9 @@ export function expirationCheckMiddleware(): Middleware {
 
     if (job.expiresAt && job.expiresAt < now) {
       logger.debug('Job has expired, failing the job', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
-        expiresAt: job.expiresAt,
+        expires_at: job.expiresAt,
       });
 
       const err = new JobExpiredError(`Job "${job.id}" expired at ${job.expiresAt}`);
@@ -183,9 +183,9 @@ export function startJobMiddleware(): Middleware {
     const { jobRunId, attempt } = await stateMachine.start(job);
 
     logger.debug('Started job execution', {
-      jobId: job.id,
+      job_id: job.id,
+      job_run_id: jobRunId,
       type: job.type,
-      jobRunId,
       attempt,
     });
 
@@ -221,15 +221,15 @@ export function executeJobMiddleware(
     // Decide how to execute
     if (jobDef.forkMode === true) {
       logger.debug('Executing job in fork mode', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
-        forkHelperPath: jobDef.forkHelperPath,
+        fork_helper_path: jobDef.forkHelperPath,
       });
 
       await executeForkMode(jobDef, job, jobRunContext);
     } else {
       logger.debug('Executing job handler in process', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
       });
 
@@ -256,7 +256,7 @@ export function completionMiddleware(): Middleware {
       // If we reach here, job execution completed successfully
       if (jobRunId) {
         logger.debug('Job completed successfully', {
-          jobId: job.id,
+          job_id: job.id,
           type: job.type,
         });
         await stateMachine.complete(job, jobRunId);
@@ -269,7 +269,7 @@ export function completionMiddleware(): Middleware {
       }
 
       logger.error('Error processing job', {
-        jobId: job.id,
+        job_id: job.id,
         type: job.type,
         error: errorMessage,
         error_stack: error instanceof Error ? error.stack : undefined,

@@ -123,7 +123,7 @@ export class ExpiredJobsTask {
           }
         } catch (err) {
           this.logger.error('Error processing locked job', {
-            jobId: getJobId(lock.lockId),
+            job_id: getJobId(lock.lockId),
             error: err instanceof Error ? err.message : String(err),
             error_stack: err instanceof Error ? err.stack : undefined,
           });
@@ -150,7 +150,7 @@ export class ExpiredJobsTask {
           await this.cfg.stateMachine.fail(job, undefined, false, err, err.message, err.stack);
         } catch (err) {
           this.logger.error('Error processing expired job', {
-            jobId: job.id,
+            job_id: job.id,
             error: err instanceof Error ? err.message : String(err),
             error_stack: err instanceof Error ? err.stack : undefined,
           });
