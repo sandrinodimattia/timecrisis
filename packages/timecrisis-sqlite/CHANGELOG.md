@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.5.0
+
+### Minor Changes
+
+- cron jobs should only run once within a matched cron expression
+
+### Patch Changes
+
+- Updated dependencies
+  - @timecrisis/timecrisis@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes
