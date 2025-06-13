@@ -85,6 +85,31 @@ export interface SchedulerConfig {
    * Default: 60 seconds.
    */
   workerInactiveCheckInterval?: number;
+
+  /**
+   * Callback that is invoked when a job starts.
+   */
+  onJobStarted?: (job: Job) => void;
+
+  /**
+   * Callback that is invoked when a job completes.
+   */
+  onJobCompleted?: (job: Job) => void;
+
+  /**
+   * Callback that is invoked when a job fails.
+   */
+  onJobFailed?: (job: Job, error: Error) => void;
+
+  /**
+   * Callback that is invoked when the scheduler gains leadership.
+   */
+  onLeadershipAcquired?: () => void;
+
+  /**
+   * Callback that is invoked when the scheduler loses leadership.
+   */
+  onLeadershipLost?: () => void;
 }
 
 /**
@@ -195,6 +220,12 @@ export interface ScheduleOptions {
    * Schedule type (exact, interval, cron).
    */
   scheduleType: 'exact' | 'interval' | 'cron';
+
+  /**
+   * IANA time zone for cron schedules (e.g., 'Europe/Paris').
+   * If not provided, cron schedules default to UTC.
+   */
+  timeZone?: string;
 
   /**
    * Whether the schedule should be active immediately.
@@ -375,5 +406,32 @@ export class InvalidScheduleError extends SchedulerError {
 export class ProcessExitError extends SchedulerError {
   constructor(code: number) {
     super(`Process exited with code ${code}`);
+  }
+}
+
+/**
+ * Thrown when a job expires.
+ */
+export class JobExpiredError extends SchedulerError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * Thrown when a job lock expires.
+ */
+export class JobLockExpiredError extends SchedulerError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * Throw when a worker was terminated.
+ */
+export class WorkerTerminatedError extends SchedulerError {
+  constructor(message: string) {
+    super(message);
   }
 }

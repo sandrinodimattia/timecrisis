@@ -93,12 +93,8 @@ export class JobScheduler {
       storage: this.storage,
       node: this.worker,
       lockTTL: opts.leaderLockTTL ?? 30000,
-      onAcquired: async (): Promise<void> => {
-        this.logger.info('Acquired leadership');
-      },
-      onLost: async (): Promise<void> => {
-        this.logger.warn('Lost leadership');
-      },
+      onAcquired: opts.onLeadershipAcquired,
+      onLost: opts.onLeadershipLost,
     });
 
     // Create the different tasks which run in the background.

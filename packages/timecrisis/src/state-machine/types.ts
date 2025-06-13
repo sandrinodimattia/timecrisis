@@ -1,6 +1,6 @@
 import { Logger } from '../logger/index.js';
-import { JobEvent, JobState } from './index.js';
 import { JobStorage } from '../storage/types.js';
+import { JobEvent, JobState } from './index.js';
 import { JobDefinition } from '../scheduler/types.js';
 
 export interface StateMachineConfig {
@@ -18,6 +18,21 @@ export interface StateMachineConfig {
    * List of job definitions.
    */
   jobs: Map<string, JobDefinition>;
+
+  /**
+   * Callback that is invoked when a job starts.
+   */
+  onJobStarted?: (type: string, jobId: string, jobRunId: string, attempt: number) => void;
+
+  /**
+   * Callback that is invoked when a job completes.
+   */
+  onJobCompleted?: (type: string, jobId: string, jobRunId: string) => void;
+
+  /**
+   * Callback that is invoked when a job fails.
+   */
+  onJobFailed?: (type: string, jobId: string, jobRunId: string | undefined, error: Error) => void;
 }
 
 /**
