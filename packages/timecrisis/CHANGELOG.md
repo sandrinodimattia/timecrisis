@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.3.0
+
+### Minor Changes
+
+- Major changes to the timecrisis libraries
+
 ## 0.2.0
 
 ### Minor Changes

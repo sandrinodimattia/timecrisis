@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.3.0
+
+### Minor Changes
+
+- Major changes to the timecrisis libraries
+
+### Patch Changes
+
+- Updated dependencies
+  - @timecrisis/timecrisis@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes
