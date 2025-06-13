@@ -118,7 +118,7 @@ export class InMemoryJobStorage implements JobStorage {
    * @param fn - Function to execute within the transaction
    * @returns Promise resolving to the function's result
    */
-  async transaction<T>(fn: (trx: unknown) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (trx: unknown) => T): Promise<T> {
     if (this.operationInProgress) {
       return new Promise((resolve, reject) => {
         this.operationQueue.push(async () => {
@@ -141,10 +141,10 @@ export class InMemoryJobStorage implements JobStorage {
    * @param fn - Function to execute
    * @returns Promise resolving to the function's result
    */
-  private async executeTransaction<T>(fn: (trx: unknown) => Promise<T>): Promise<T> {
+  private executeTransaction<T>(fn: (trx: unknown) => T): T {
     this.operationInProgress = true;
     try {
-      const result = await fn(null);
+      const result = fn(null);
       return result;
     } finally {
       this.operationInProgress = false;

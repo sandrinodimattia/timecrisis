@@ -196,7 +196,7 @@ export class SQLiteJobStorage implements JobStorage {
    * @param fn - Function to execute within the transaction
    * @returns Promise resolving to the function's result
    */
-  async transaction<T>(fn: (trx: unknown) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (trx: unknown) => T): Promise<T> {
     return new Promise((resolve, reject) => {
       try {
         const wrapped = this.db.transaction((_: unknown) => {
@@ -213,11 +213,7 @@ export class SQLiteJobStorage implements JobStorage {
 
         // Execute the transaction and handle the Promise
         const result = wrapped(null);
-        if (result instanceof Promise) {
-          result.then(resolve).catch(reject);
-        } else {
-          resolve(result);
-        }
+        resolve(result);
       } catch (error) {
         reject(error);
       }

@@ -143,7 +143,7 @@ export class MockJobStorage implements JobStorage {
    * @returns Promise of the function result
    * @throws Error if shouldFailTransaction is true
    */
-  async transaction<T>(fn: (trx: unknown) => Promise<T>): Promise<T> {
+  async transaction<T>(fn: (trx: unknown) => T): Promise<T> {
     if (this.options.shouldFailTransaction) {
       throw new Error('Transaction failed');
     }

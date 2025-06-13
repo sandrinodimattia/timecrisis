@@ -34,13 +34,6 @@ export interface JobStorage {
   init(): Promise<void>;
 
   /**
-   * Run operations in a transaction.
-   * @param fn - Function to execute within the transaction
-   * @returns Promise that resolves with the result of the transaction
-   */
-  transaction<T>(fn: (trx: unknown) => Promise<T>): Promise<T>;
-
-  /**
    * Create a new job.
    * @param job - Job data excluding id, createdAt, and updatedAt
    * @returns Promise that resolves with the ID of the created job
