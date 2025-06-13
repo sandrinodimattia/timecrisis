@@ -1,12 +1,19 @@
 import { pino } from 'pino';
-import { JobScheduler, InMemoryJobStorage, PinoLogger } from '@timecrisis/timecrisis';
+import Database from 'better-sqlite3';
+
+import { SQLiteJobStorage } from '@timecrisis/timecrisis-sqlite';
+import { JobScheduler, PinoLogger } from '@timecrisis/timecrisis';
 
 import { sendEmailJob } from './jobs/send-email';
 
 const runScheduler = async () => {
   const logger = pino({ name: 'basic-example' });
 
-  const storage = new InMemoryJobStorage();
+  const db = new Database('db.sqlite');
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+
+  const storage = new SQLiteJobStorage(db);
   await storage.init();
 
   // Instantiate the scheduler
@@ -14,7 +21,7 @@ const runScheduler = async () => {
     storage,
     logger: new PinoLogger({
       options: {
-        level: 'debug',
+        level: 'info',
       },
     }),
     maxConcurrentJobs: 10,
@@ -46,7 +53,7 @@ const runScheduler = async () => {
   };
 
   const jobId = await scheduler.schedule('newsletter-cron', 'sendEmail', jobData, {
-    scheduleValue: '29 19 * * *',
+    scheduleValue: '38 22 * * *',
     scheduleType: 'cron',
     timeZone: 'Europe/Paris',
   });
