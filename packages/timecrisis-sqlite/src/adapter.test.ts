@@ -730,6 +730,26 @@ describe('SQLiteJobStorage', () => {
       expect(enabledJobs).toHaveLength(1);
       expect(enabledJobs[0].name).toBe('job-1');
     });
+
+    it('should handle concurrent acquireTypeSlot calls correctly', async () => {
+      const jobType = 'concurrent-test';
+      const maxConcurrent = 2;
+
+      const promises = [
+        storage.acquireTypeSlot(jobType, 'worker-1', maxConcurrent),
+        storage.acquireTypeSlot(jobType, 'worker-2', maxConcurrent),
+        storage.acquireTypeSlot(jobType, 'worker-3', maxConcurrent),
+      ];
+
+      const results = await Promise.all(promises);
+
+      // Only two of the three should succeed
+      const successfulAcquisitions = results.filter((res) => res).length;
+      expect(successfulAcquisitions).toBe(2);
+
+      const runningCount = await storage.getRunningCount(jobType);
+      expect(runningCount).toBe(2);
+    });
   });
 
   describe('Dead Letter Queue', () => {

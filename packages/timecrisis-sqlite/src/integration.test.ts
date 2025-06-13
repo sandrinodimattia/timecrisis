@@ -5,8 +5,8 @@ import { z } from 'zod';
 import { promisify } from 'node:util';
 import { exec, fork } from 'child_process';
 
+import { JobScheduler, EmptyLogger } from '@timecrisis/timecrisis';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { JobScheduler, EmptyLogger, ConsoleLogger } from '@timecrisis/timecrisis';
 
 import {
   createStorage,
@@ -48,7 +48,7 @@ describe('SQLite Integration Tests', () => {
     beforeEach(async () => {
       scheduler = new JobScheduler({
         storage,
-        logger: new ConsoleLogger(),
+        logger: new EmptyLogger(),
         worker: defaultValues.workerName,
         jobProcessingInterval: defaultValues.pollInterval,
         jobSchedulingInterval: defaultValues.pollInterval,
@@ -115,6 +115,7 @@ describe('SQLite Integration Tests', () => {
         { data: 'test' },
         {
           maxRetries: 3,
+          backoffStrategy: 'linear',
         }
       );
 
@@ -325,7 +326,7 @@ describe('SQLite Integration Tests', () => {
     beforeEach(async () => {
       scheduler = new JobScheduler({
         storage,
-        logger: new ConsoleLogger(),
+        logger: new EmptyLogger(),
         worker: defaultValues.workerName,
         jobProcessingInterval: defaultValues.pollInterval,
         jobSchedulingInterval: defaultValues.pollInterval,
@@ -409,19 +410,20 @@ describe('SQLite Integration Tests', () => {
       expect(stdout).toContain('Build success');
     });
 
-    it.only('should handle worker failover and cleanup job type slots', async () => {
+    it('should handle worker failover and cleanup job type slots', async () => {
       resetEnvironment();
 
       // Create backup scheduler
       const backupScheduler = new JobScheduler({
         storage: storage,
-        logger: new ConsoleLogger(),
+        logger: new EmptyLogger(),
         worker: 'backup-worker',
         maxConcurrentJobs: 5,
         jobLockTTL: 1000,
         leaderLockTTL: 250,
-        jobProcessingInterval: 300,
-        jobSchedulingInterval: 300,
+        // Set this to a very high number to avoid the backup scheduler to pick up any work
+        jobProcessingInterval: 30000000,
+        jobSchedulingInterval: 30000000,
         scheduledJobMaxStaleAge: 60000,
         expiredJobCheckInterval: 1000,
         shutdownTimeout: 15000,
@@ -444,8 +446,8 @@ describe('SQLite Integration Tests', () => {
       });
 
       // Uncomment in case of errors, this will print the stderr and stdout of the leader process to the console
-      leaderProcess.stderr?.pipe(process.stderr);
-      leaderProcess.stdout?.pipe(process.stdout);
+      // leaderProcess.stderr?.pipe(process.stderr);
+      // leaderProcess.stdout?.pipe(process.stdout);
 
       // Wait for the leader to start.
       await new Promise((resolve) => setTimeout(resolve, 250));
@@ -478,7 +480,6 @@ describe('SQLite Integration Tests', () => {
 
       // Check if only 2 were started by the leader, matching the concurrency.
       let jobs = await Promise.all(jobIds.map((id) => storage.getJob(id)));
-      console.log(jobs);
       expect(jobs[0]?.status).toBe('running');
       expect(jobs[1]?.status).toBe('running');
       expect(jobs[2]?.status).toBe('pending');
@@ -489,7 +490,7 @@ describe('SQLite Integration Tests', () => {
       leaderProcess.kill('SIGTERM');
 
       // Wait for the backup worker to take leadership and reset locks.
-      await new Promise((resolve) => setTimeout(resolve, 275));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Jobs should be reset to pending.
       jobs = await Promise.all(jobIds.map((id) => storage.getJob(id)));
