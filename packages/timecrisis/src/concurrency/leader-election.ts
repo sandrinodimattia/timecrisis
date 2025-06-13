@@ -45,7 +45,7 @@ export interface LeaderElectionConfig {
  * over, it loses leadership.
  */
 export class LeaderElection {
-  private readonly LOCK_NAME = 'chronotrigger/leader';
+  private readonly LOCK_NAME = 'timecrisis/leader';
   private readonly cfg: LeaderElectionConfig;
   private readonly distributedLock: DistributedLock;
 

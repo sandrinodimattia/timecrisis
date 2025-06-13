@@ -4,7 +4,7 @@
  * @returns The formatted lock name.
  */
 export function formatLockName(jobId: string): string {
-  return `chronotrigger/job/${jobId}`;
+  return `timecrisis/job/${jobId}`;
 }
 
 /**
@@ -13,7 +13,7 @@ export function formatLockName(jobId: string): string {
  * @returns `true` if the name is a job lock, `false` otherwise.
  */
 export function isJobLock(name: string): boolean {
-  return name.startsWith('chronotrigger/job/');
+  return name.startsWith('timecrisis/job/');
 }
 
 /**

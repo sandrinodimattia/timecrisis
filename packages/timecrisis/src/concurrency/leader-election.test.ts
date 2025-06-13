@@ -84,7 +84,7 @@ describe('LeaderElection', () => {
     expect(leader.isCurrentLeader()).toBe(true);
 
     // Another node takes over leadership
-    await storage.simulateOtherLeader('chronotrigger/leader', defaultValues.lockTTL);
+    await storage.simulateOtherLeader('timecrisis/leader', defaultValues.lockTTL);
 
     // Force an immediate leadership check
     await leader.stop();
@@ -182,7 +182,7 @@ describe('LeaderElection', () => {
     expect(leader.isCurrentLeader()).toBe(true);
 
     // Simulate another node taking leadership
-    await storage.simulateOtherLeader('chronotrigger/leader', defaultValues.lockTTL);
+    await storage.simulateOtherLeader('timecrisis/leader', defaultValues.lockTTL);
 
     // Force an immediate leadership check by triggering a renewal
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -227,6 +227,41 @@ describe('LeaderElection', () => {
     }
   });
 
+  it('should elect only one leader when multiple nodes start simultaneously', async () => {
+    const leader1 = new LeaderElection({
+      logger: new EmptyLogger(),
+      storage,
+      node: 'node-1',
+      lockTTL: defaultValues.lockTTL,
+    });
+    const leader2 = new LeaderElection({
+      logger: new EmptyLogger(),
+      storage,
+      node: 'node-2',
+      lockTTL: defaultValues.lockTTL,
+    });
+    const leader3 = new LeaderElection({
+      logger: new EmptyLogger(),
+      storage,
+      node: 'node-3',
+      lockTTL: defaultValues.lockTTL,
+    });
+
+    // Start all election processes concurrently
+    await Promise.all([leader1.start(), leader2.start(), leader3.start()]);
+
+    const leaders = [
+      leader1.isCurrentLeader(),
+      leader2.isCurrentLeader(),
+      leader3.isCurrentLeader(),
+    ];
+
+    const leaderCount = leaders.filter((isLeader) => isLeader).length;
+
+    // Assert that exactly one of them became the leader
+    expect(leaderCount).toBe(1);
+  });
+
   it('should handle leadership loss and reacquisition', async () => {
     const onAcquired = vi.fn();
     const onLost = vi.fn();
@@ -250,7 +285,7 @@ describe('LeaderElection', () => {
     onLost.mockClear();
 
     // Lose leadership
-    await storage.simulateOtherLeader('chronotrigger/leader', defaultValues.lockTTL);
+    await storage.simulateOtherLeader('timecrisis/leader', defaultValues.lockTTL);
 
     // Wait for the next check interval
     await vi.advanceTimersByTimeAsync(defaultValues.lockTTL / 2);
