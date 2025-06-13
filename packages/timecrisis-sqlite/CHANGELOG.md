@@ -1,5 +1,18 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.6.0
+
+### Minor Changes
+
+- 388d762: feat: track the scheduled_job_id when a scheduled job creates a job
+- ca133f3: when scheduling a job, upsert the job by name+type
+
+### Patch Changes
+
+- Updated dependencies [388d762]
+- Updated dependencies [ca133f3]
+  - @timecrisis/timecrisis@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes
