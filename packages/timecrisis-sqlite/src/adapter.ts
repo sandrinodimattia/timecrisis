@@ -351,6 +351,7 @@ export class SQLiteJobStorage implements JobStorage {
       attempt: newRun.attempt,
       error: newRun.error ?? null,
       error_stack: newRun.errorStack ?? null,
+      touched_at: fromDate(newRun.touchedAt),
     });
 
     return newRun.id;
@@ -374,7 +375,7 @@ export class SQLiteJobStorage implements JobStorage {
     // Create and validate the updated run
     const updatedRun = JobRunSchema.strict().parse({
       ...existing,
-      ...updates,
+      ...updates, // Always update touched_at when updating a job run
     });
 
     // Update the job run in the database
@@ -388,6 +389,7 @@ export class SQLiteJobStorage implements JobStorage {
       attempt: updatedRun.attempt,
       error: updatedRun.error ?? null,
       error_stack: updatedRun.errorStack ?? null,
+      touched_at: fromDate(updatedRun.touchedAt),
     });
   }
 
@@ -1051,6 +1053,7 @@ export class SQLiteJobStorage implements JobStorage {
       attempt: row.attempt,
       error: row.error ?? undefined,
       errorStack: row.error_stack ?? undefined,
+      touchedAt: toDate(row.touched_at),
     });
   }
 

@@ -2,15 +2,16 @@ import { randomUUID } from 'crypto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { JobNotFoundError, ScheduledJobNotFoundError } from '@timecrisis/timecrisis';
 
+import { SQLiteJobStorage } from './adapter.js';
+
 import {
-  createStorage,
   defaultJob,
   defaultValues,
   now,
-  prepareEnvironment,
   resetEnvironment,
+  prepareEnvironment,
+  createStorage,
 } from './test-helpers/defaults.js';
-import { SQLiteJobStorage } from './adapter.js';
 
 describe('SQLiteJobStorage', () => {
   let storage: SQLiteJobStorage;
@@ -374,6 +375,7 @@ describe('SQLiteJobStorage', () => {
         progress: 45,
         startedAt: now,
         executionDuration: 5000,
+        touchedAt: new Date(now.getTime() + 1000),
         finishedAt: new Date(now.getTime() + 1000), // 1 second later
         attempt: 3,
         error: 'Test error message',
@@ -397,6 +399,8 @@ describe('SQLiteJobStorage', () => {
       expect(run.attempt).toBe(runData.attempt);
       expect(run.error).toBe(runData.error);
       expect(run.errorStack).toBe(runData.errorStack);
+      expect(run.touchedAt).toBeDefined();
+      expect(run.touchedAt instanceof Date).toBe(true);
 
       // Verify individual retrieval also works
       const singleRun = await storage.getJobRun(runId);
@@ -410,6 +414,8 @@ describe('SQLiteJobStorage', () => {
       expect(singleRun?.attempt).toBe(runData.attempt);
       expect(singleRun?.error).toBe(runData.error);
       expect(singleRun?.errorStack).toBe(runData.errorStack);
+      expect(singleRun?.touchedAt).toBeDefined();
+      expect(singleRun?.touchedAt instanceof Date).toBe(true);
     });
 
     it('should update job run correctly', async () => {
@@ -429,6 +435,10 @@ describe('SQLiteJobStorage', () => {
         attempt: 1,
       });
 
+      // Get initial touched_at
+      const initialRun = await storage.getJobRun(runId);
+      const initialTouchedOn = initialRun?.touchedAt;
+
       // Update with all possible fields
       const updates = {
         status: 'failed' as const,
@@ -437,6 +447,7 @@ describe('SQLiteJobStorage', () => {
         startedAt: new Date(now.getTime() + 1000), // 1 second after start
         finishedAt: new Date(now.getTime() + 5000), // 5 seconds after start
         attempt: 2,
+        touchedAt: new Date(now.getTime() + 1000),
         error: 'Updated error message',
         errorStack: 'Error: Updated error message\n    at UpdatedFunction (/updated.ts:1:1)',
       };
@@ -454,6 +465,9 @@ describe('SQLiteJobStorage', () => {
       expect(run?.attempt).toBe(updates.attempt);
       expect(run?.error).toBe(updates.error);
       expect(run?.errorStack).toBe(updates.errorStack);
+      expect(run?.touchedAt).toBeDefined();
+      expect(run?.touchedAt instanceof Date).toBe(true);
+      expect(run?.touchedAt!.getTime()).toBeGreaterThan(initialTouchedOn?.getTime() ?? 0);
 
       // Verify unchanged fields
       expect(run?.id).toBe(runId);

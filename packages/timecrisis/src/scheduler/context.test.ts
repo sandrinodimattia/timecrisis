@@ -56,6 +56,7 @@ describe('JobContextImpl', () => {
 
       expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
         progress: 50,
+        touchedAt: expect.any(Date),
       });
     });
 
@@ -75,11 +76,13 @@ describe('JobContextImpl', () => {
       await jobContext.updateProgress(0);
       expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
         progress: 0,
+        touchedAt: expect.any(Date),
       });
 
       await jobContext.updateProgress(100);
       expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
         progress: 100,
+        touchedAt: expect.any(Date),
       });
     });
   });
@@ -112,9 +115,12 @@ describe('JobContextImpl', () => {
   });
 
   describe('touch', () => {
-    it('should call the touch function', async () => {
+    it('should call the touch function and update touchedAt', async () => {
       await jobContext.touch();
       expect(mockStorage.renewLock).toHaveBeenCalled();
+      expect(mockStorage.updateJobRun).toHaveBeenCalledWith(jobRunId, {
+        touchedAt: expect.any(Date),
+      });
     });
   });
 

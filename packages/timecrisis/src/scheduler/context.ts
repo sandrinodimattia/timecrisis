@@ -76,7 +76,10 @@ export class JobContextImpl implements JobContext {
    * Keep the job lock alive (for long-running jobs).
    */
   async touch(): Promise<void> {
-    await this.storage.renewLock(formatLockName(this.jobId), this.worker, this.jobLockTTL);
+    await Promise.all([
+      this.storage.updateJobRun(this.jobRunId, { touchedAt: new Date() }),
+      this.storage.renewLock(formatLockName(this.jobId), this.worker, this.jobLockTTL),
+    ]);
   }
 
   /**
@@ -90,7 +93,10 @@ export class JobContextImpl implements JobContext {
 
     // Update both the job run and the parent job with the new progress
     await Promise.all([
-      this.storage.updateJobRun(this.jobRunId, { progress }),
+      this.storage.updateJobRun(this.jobRunId, {
+        progress,
+        touchedAt: new Date(),
+      }),
       this.storage.renewLock(formatLockName(this.jobId), this.worker, this.jobLockTTL),
     ]);
   }

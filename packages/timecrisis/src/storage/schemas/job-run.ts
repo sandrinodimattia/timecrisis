@@ -35,6 +35,11 @@ export const JobRunSchema = z.object({
   startedAt: z.date(),
 
   /**
+   * When the job run was last touched/updated
+   */
+  touchedAt: z.date().nullable().optional(),
+
+  /**
    * When the run completed
    */
   finishedAt: z.date().nullable().optional(),

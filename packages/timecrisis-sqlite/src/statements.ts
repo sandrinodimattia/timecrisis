@@ -91,7 +91,8 @@ export const SQLiteStatements = {
       execution_duration,
       attempt,
       error,
-      error_stack
+      error_stack,
+      touched_at
     ) VALUES (
       @id,
       @job_id,
@@ -102,7 +103,8 @@ export const SQLiteStatements = {
       @execution_duration,
       @attempt,
       @error,
-      @error_stack
+      @error_stack,
+      @touched_at
     )
   `,
 
@@ -120,7 +122,8 @@ export const SQLiteStatements = {
       execution_duration = @execution_duration,
       error = @error,
       error_stack = @error_stack,
-      attempt = @attempt
+      attempt = @attempt,
+      touched_at = @touched_at
     WHERE id = @id
   `,
 

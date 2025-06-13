@@ -31,6 +31,7 @@ export function up(db: Database): void {
       job_id TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
       started_at TEXT,
+      touched_at TEXT,
       finished_at TEXT,
       attempt INTEGER NOT NULL DEFAULT 1,
       progress INTEGER NOT NULL DEFAULT 0 CHECK (progress BETWEEN 0 AND 100),
