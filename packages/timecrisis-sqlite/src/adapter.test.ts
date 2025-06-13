@@ -750,6 +750,102 @@ describe('SQLiteJobStorage', () => {
       const runningCount = await storage.getRunningCount(jobType);
       expect(runningCount).toBe(2);
     });
+
+    it('should update existing job when creating with same name and type', async () => {
+      const job1 = {
+        name: 'test-job',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+      };
+
+      const job2 = {
+        name: 'test-job',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 0 * * *',
+        data: { test: 'data2' },
+      };
+
+      // Create first job
+      const id1 = await storage.createScheduledJob(job1);
+      const saved1 = await storage.getScheduledJob(id1);
+      expect(saved1).toBeDefined();
+      expect(saved1?.data).toEqual({ test: 'data1' });
+
+      // Create second job with same name and type
+      const id2 = await storage.createScheduledJob(job2);
+      expect(id2).toBe(id1); // Should return same ID
+
+      // Verify the job was updated
+      const saved2 = await storage.getScheduledJob(id1);
+      expect(saved2).toBeDefined();
+      expect(saved2?.data).toEqual({ test: 'data2' });
+      expect(saved2?.scheduleValue).toBe('0 0 * * *');
+    });
+
+    it('should allow different jobs with same name but different type', async () => {
+      const job1 = {
+        name: 'test-job',
+        type: 'type1',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+      };
+
+      const job2 = {
+        name: 'test-job',
+        type: 'type2',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 0 * * *',
+        data: { test: 'data2' },
+      };
+
+      // Create both jobs
+      const id1 = await storage.createScheduledJob(job1);
+      const id2 = await storage.createScheduledJob(job2);
+      expect(id1).not.toBe(id2);
+
+      // Verify both jobs exist
+      const saved1 = await storage.getScheduledJob(id1);
+      const saved2 = await storage.getScheduledJob(id2);
+      expect(saved1).toBeDefined();
+      expect(saved2).toBeDefined();
+      expect(saved1?.data).toEqual({ test: 'data1' });
+      expect(saved2?.data).toEqual({ test: 'data2' });
+    });
+
+    it('should allow different jobs with same type but different name', async () => {
+      const job1 = {
+        name: 'job1',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+      };
+
+      const job2 = {
+        name: 'job2',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 0 * * *',
+        data: { test: 'data2' },
+      };
+
+      // Create both jobs
+      const id1 = await storage.createScheduledJob(job1);
+      const id2 = await storage.createScheduledJob(job2);
+      expect(id1).not.toBe(id2);
+
+      // Verify both jobs exist
+      const saved1 = await storage.getScheduledJob(id1);
+      const saved2 = await storage.getScheduledJob(id2);
+      expect(saved1).toBeDefined();
+      expect(saved2).toBeDefined();
+      expect(saved1?.data).toEqual({ test: 'data1' });
+      expect(saved2?.data).toEqual({ test: 'data2' });
+    });
   });
 
   describe('Dead Letter Queue', () => {

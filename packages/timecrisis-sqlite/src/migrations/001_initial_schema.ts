@@ -67,7 +67,8 @@ export function up(db: Database): void {
       next_run_at TEXT,
       enabled INTEGER NOT NULL DEFAULT 1, 
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      UNIQUE(name, type)
     )
   `);
 

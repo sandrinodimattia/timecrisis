@@ -496,7 +496,11 @@ export class SQLiteJobStorage implements JobStorage {
 
     const dataStr = serializeData(newJob.data);
 
-    this.stmtInsertScheduledJob.run({
+    interface ScheduledJobRow {
+      id: string;
+    }
+
+    const result = this.stmtInsertScheduledJob.get({
       id: newJob.id,
       name: newJob.name,
       type: newJob.type,
@@ -509,9 +513,9 @@ export class SQLiteJobStorage implements JobStorage {
       next_run_at: fromDate(newJob.nextRunAt),
       created_at: newJob.createdAt.toISOString(),
       updated_at: newJob.updatedAt.toISOString(),
-    });
+    }) as ScheduledJobRow;
 
-    return newJob.id;
+    return result.id;
   }
 
   /**

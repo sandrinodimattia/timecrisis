@@ -224,6 +224,149 @@ describe('JobScheduler', () => {
       const metrics = await scheduler.getMetrics();
       expect(metrics.completed).toBeGreaterThan(0);
     });
+
+    it('should update existing job when scheduling with same name and type', async () => {
+      // Register the job type
+      scheduler.registerJob({
+        type: 'test-type',
+        schema: z.object({ test: z.string() }),
+        handle: async () => {},
+        concurrency: 1,
+      });
+
+      const job = {
+        name: 'test-job',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+      };
+
+      // Schedule first job
+      const id1 = await scheduler.schedule(job.name, job.type, job.data, {
+        scheduleType: job.scheduleType,
+        scheduleValue: job.scheduleValue,
+      });
+
+      // Schedule second job with same name and type
+      const id2 = await scheduler.schedule(
+        job.name,
+        job.type,
+        { test: 'data2' },
+        {
+          scheduleType: job.scheduleType,
+          scheduleValue: '0 0 * * *',
+        }
+      );
+
+      expect(id2).toBe(id1); // Should return same ID
+
+      // Verify the job was updated
+      const saved = await storage.getScheduledJob(id1);
+      expect(saved).toBeDefined();
+      expect(saved?.data).toEqual({ test: 'data2' });
+      expect(saved?.scheduleValue).toBe('0 0 * * *');
+    });
+
+    it('should allow different jobs with same name but different type', async () => {
+      // Register both job types
+      scheduler.registerJob({
+        type: 'type1',
+        schema: z.object({ test: z.string() }),
+        handle: async () => {},
+        concurrency: 1,
+      });
+      scheduler.registerJob({
+        type: 'type2',
+        schema: z.object({ test: z.string() }),
+        handle: async () => {},
+        concurrency: 1,
+      });
+
+      const job1 = {
+        name: 'test-job',
+        type: 'type1',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+      };
+
+      const job2 = {
+        name: 'test-job',
+        type: 'type2',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 0 * * *',
+        data: { test: 'data2' },
+      };
+
+      // Schedule both jobs
+      const id1 = await scheduler.schedule(job1.name, job1.type, job1.data, {
+        scheduleType: job1.scheduleType,
+        scheduleValue: job1.scheduleValue,
+      });
+
+      const id2 = await scheduler.schedule(job2.name, job2.type, job2.data, {
+        scheduleType: job2.scheduleType,
+        scheduleValue: job2.scheduleValue,
+      });
+
+      expect(id1).not.toBe(id2);
+
+      // Verify both jobs exist
+      const saved1 = await storage.getScheduledJob(id1);
+      const saved2 = await storage.getScheduledJob(id2);
+      expect(saved1).toBeDefined();
+      expect(saved2).toBeDefined();
+      expect(saved1?.data).toEqual({ test: 'data1' });
+      expect(saved2?.data).toEqual({ test: 'data2' });
+    });
+
+    it('should allow different jobs with same type but different name', async () => {
+      // Register the job type
+      scheduler.registerJob({
+        type: 'test-type',
+        schema: z.object({ test: z.string() }),
+        handle: async () => {},
+        concurrency: 1,
+      });
+
+      const job1 = {
+        name: 'job1',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 * * * *',
+        data: { test: 'data1' },
+      };
+
+      const job2 = {
+        name: 'job2',
+        type: 'test-type',
+        scheduleType: 'cron' as const,
+        scheduleValue: '0 0 * * *',
+        data: { test: 'data2' },
+      };
+
+      // Schedule both jobs
+      const id1 = await scheduler.schedule(job1.name, job1.type, job1.data, {
+        scheduleType: job1.scheduleType,
+        scheduleValue: job1.scheduleValue,
+      });
+
+      const id2 = await scheduler.schedule(job2.name, job2.type, job2.data, {
+        scheduleType: job2.scheduleType,
+        scheduleValue: job2.scheduleValue,
+      });
+
+      expect(id1).not.toBe(id2);
+
+      // Verify both jobs exist
+      const saved1 = await storage.getScheduledJob(id1);
+      const saved2 = await storage.getScheduledJob(id2);
+      expect(saved1).toBeDefined();
+      expect(saved2).toBeDefined();
+      expect(saved1?.data).toEqual({ test: 'data1' });
+      expect(saved2?.data).toEqual({ test: 'data2' });
+    });
   });
 
   describe('concurrency control', () => {

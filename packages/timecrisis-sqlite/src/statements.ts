@@ -189,10 +189,24 @@ export const SQLiteStatements = {
       @created_at,
       @updated_at
     )
+    ON CONFLICT(name, type) DO UPDATE SET
+      schedule_type = excluded.schedule_type,
+      schedule_value = excluded.schedule_value,
+      time_zone = excluded.time_zone,
+      data = excluded.data,
+      enabled = excluded.enabled,
+      last_scheduled_at = excluded.last_scheduled_at,
+      next_run_at = excluded.next_run_at,
+      updated_at = excluded.updated_at
+    RETURNING id
   `,
 
   selectScheduledJobById: `
     SELECT * FROM scheduled_jobs WHERE id = ?
+  `,
+
+  selectScheduledJobByNameAndType: `
+    SELECT * FROM scheduled_jobs WHERE name = @name AND type = @type
   `,
 
   updateScheduledJob: `

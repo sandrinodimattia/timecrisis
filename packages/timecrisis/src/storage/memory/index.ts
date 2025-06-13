@@ -409,6 +409,22 @@ export class InMemoryJobStorage implements JobStorage {
     // Parse and validate the input
     const validJob = CreateScheduledJobSchema.parse(job);
 
+    // Check for existing job with same name and type
+    const existingJob = Array.from(this.scheduledJobs.values()).find(
+      (j) => j.name === validJob.name && j.type === validJob.type
+    );
+
+    if (existingJob) {
+      // Update existing job
+      const updatedJob = ScheduledJobSchema.parse({
+        ...existingJob,
+        ...validJob,
+        updatedAt: now,
+      });
+      this.scheduledJobs.set(existingJob.id, updatedJob);
+      return existingJob.id;
+    }
+
     // Create and validate the full scheduled job
     const newJob = ScheduledJobSchema.parse({
       ...validJob,

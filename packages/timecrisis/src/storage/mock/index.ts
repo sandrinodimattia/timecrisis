@@ -376,6 +376,22 @@ export class MockJobStorage implements JobStorage {
     // Parse and validate the input, applying defaults
     const validJob = CreateScheduledJobSchema.parse(job);
 
+    // Check for existing job with same name and type
+    const existingJob = Array.from(this.scheduledJobs.values()).find(
+      (j) => j.name === validJob.name && j.type === validJob.type
+    );
+
+    if (existingJob) {
+      // Update existing job
+      const updatedJob = ScheduledJobSchema.parse({
+        ...existingJob,
+        ...validJob,
+        updatedAt: now,
+      });
+      this.scheduledJobs.set(existingJob.id, updatedJob);
+      return existingJob.id;
+    }
+
     // Create the full job object
     const newJob = ScheduledJobSchema.parse({
       ...validJob,
