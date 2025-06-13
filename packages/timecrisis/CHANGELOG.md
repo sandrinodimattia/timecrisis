@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.9.0
+
+### Minor Changes
+
+- 1e88589: chore: rename entity_id to reference_id
+
 ## 0.8.0
 
 ### Minor Changes

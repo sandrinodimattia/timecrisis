@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.9.0
+
+### Minor Changes
+
+- 1e88589: chore: rename entity_id to reference_id
+
+### Patch Changes
+
+- Updated dependencies [1e88589]
+  - @timecrisis/timecrisis@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes
