@@ -197,11 +197,31 @@ export class SQLiteJobStorage implements JobStorage {
    * @returns Promise resolving to the function's result
    */
   async transaction<T>(fn: (trx: unknown) => Promise<T>): Promise<T> {
-    const wrapped = this.db.transaction((_: unknown) => {
-      return fn(null);
-    });
+    return new Promise((resolve, reject) => {
+      try {
+        const wrapped = this.db.transaction((_: unknown) => {
+          try {
+            // Execute the function synchronously
+            const result = fn(null);
+            // Return the result directly
+            return result;
+          } catch (error) {
+            reject(error);
+            throw error; // Re-throw to ensure transaction rollback
+          }
+        });
 
-    return wrapped(null);
+        // Execute the transaction and handle the Promise
+        const result = wrapped(null);
+        if (result instanceof Promise) {
+          result.then(resolve).catch(reject);
+        } else {
+          resolve(result);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   /**
