@@ -215,7 +215,7 @@ export class ScheduledJobsTask {
       case 'cron': {
         const interval = cronParser.parseExpression(job.scheduleValue, {
           currentDate: fromDate,
-          tz: 'UTC',
+          tz: job.timeZone || 'UTC',
         });
 
         return interval.next().toDate();

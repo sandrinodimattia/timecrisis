@@ -35,6 +35,12 @@ export const ScheduledJobSchema = z.object({
   scheduleValue: z.string(),
 
   /**
+   * IANA time zone for cron schedules (e.g., 'Europe/Paris').
+   * If not provided, cron schedules default to UTC.
+   */
+  timeZone: z.string().optional(),
+
+  /**
    * Job-specific data
    */
   data: z.unknown().default({}),
