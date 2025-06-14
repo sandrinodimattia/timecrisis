@@ -643,5 +643,83 @@ stores.forEach(({ name, store }) => {
         });
       });
     });
+
+    describe('job expiration', () => {
+      it('should use expiresIn when provided', async () => {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
+          expiresIn: '2h',
+        });
+
+        const job = await jobStore.getJob(jobId);
+        const expectedExpiry = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        expect(job?.expiresAt?.getTime()).toBeCloseTo(expectedExpiry.getTime(), -2); // Allow 100ms difference
+      });
+
+      it('should use expiresAt when provided', async () => {
+        const specificDate = new Date('2024-12-31T23:59:59Z');
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
+          expiresAt: specificDate,
+        });
+
+        const job = await jobStore.getJob(jobId);
+        expect(job?.expiresAt).toEqual(specificDate);
+      });
+
+      it('should use job definition expiresAfter when no expiration options provided', async () => {
+        const jobWithExpiry = {
+          ...defaultJobDefinition,
+          expiresAfter: '1d',
+        };
+        jobs.set(jobWithExpiry.type, jobWithExpiry);
+
+        const jobId = await stateMachine.enqueue(jobWithExpiry.type, defaultJob.data);
+        const job = await jobStore.getJob(jobId);
+        const expectedExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        expect(job?.expiresAt?.getTime()).toBeCloseTo(expectedExpiry.getTime(), -2); // Allow 100ms difference
+      });
+
+      it('should use default 1 hour expiration when no expiration options provided', async () => {
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data);
+        const job = await jobStore.getJob(jobId);
+        const expectedExpiry = new Date(Date.now() + 60 * 60 * 1000);
+        expect(job?.expiresAt?.getTime()).toBeCloseTo(expectedExpiry.getTime(), -2); // Allow 100ms difference
+      });
+
+      it('should prioritize expiresIn over expiresAt', async () => {
+        const specificDate = new Date('2024-12-31T23:59:59Z');
+        const jobId = await stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
+          expiresIn: '2h',
+          expiresAt: specificDate,
+        });
+
+        const job = await jobStore.getJob(jobId);
+        const expectedExpiry = new Date(Date.now() + 2 * 60 * 60 * 1000);
+        expect(job?.expiresAt?.getTime()).toBeCloseTo(expectedExpiry.getTime(), -2); // Allow 100ms difference
+      });
+
+      it('should prioritize expiresAt over job definition expiresAfter', async () => {
+        const jobWithExpiry = {
+          ...defaultJobDefinition,
+          expiresAfter: '1d',
+        };
+        jobs.set(jobWithExpiry.type, jobWithExpiry);
+
+        const specificDate = new Date('2024-12-31T23:59:59Z');
+        const jobId = await stateMachine.enqueue(jobWithExpiry.type, defaultJob.data, {
+          expiresAt: specificDate,
+        });
+
+        const job = await jobStore.getJob(jobId);
+        expect(job?.expiresAt).toEqual(specificDate);
+      });
+
+      it('should handle invalid duration strings gracefully', async () => {
+        await expect(
+          stateMachine.enqueue(defaultJobDefinition.type, defaultJob.data, {
+            expiresIn: 'invalid-duration',
+          })
+        ).rejects.toThrow();
+      });
+    });
   });
 });

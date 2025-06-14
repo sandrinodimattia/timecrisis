@@ -99,9 +99,17 @@ export class JobStateMachine {
     const validData = await job.schema.parseAsync(data);
 
     // Calculate expiration if provided.
-    const expiresAt = options.expiresIn
-      ? new Date(Date.now() + parseDuration(options.expiresIn))
-      : options.expiresAt;
+    let expiresAt: Date | undefined;
+    if (options.expiresIn) {
+      expiresAt = new Date(Date.now() + parseDuration(options.expiresIn));
+    } else if (options.expiresAt) {
+      expiresAt = options.expiresAt;
+    } else if (job.expiresAfter) {
+      expiresAt = new Date(Date.now() + parseDuration(job.expiresAfter));
+    } else {
+      const oneHour = 60 * 60 * 1000;
+      expiresAt = new Date(Date.now() + oneHour);
+    }
 
     // Create the job and return its ID
     const jobId = await this.cfg.storage.createJob({

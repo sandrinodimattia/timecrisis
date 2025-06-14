@@ -304,6 +304,11 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
   backoffStrategy?: 'exponential' | 'linear';
 
   /**
+   * How long until the job expires.
+   **/
+  expiresAfter?: string;
+
+  /**
    * Maximum number of concurrent executions.
    */
   concurrency: number;
