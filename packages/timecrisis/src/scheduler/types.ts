@@ -319,7 +319,7 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
   concurrency: number;
 
   /**
-   * Job priority (1 to 100, lower is more important).
+   * Job priority (1 to 100, from most important to least important).
    */
   priority?: number;
 
