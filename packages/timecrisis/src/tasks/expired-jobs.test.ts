@@ -67,6 +67,7 @@ describe('ExpiredJobsTask', () => {
       logger: new EmptyLogger(),
       jobLockTTL: defaultValues.jobLockTTL,
       pollInterval: defaultValues.pollInterval,
+      jobs,
     });
   });
 
@@ -776,5 +777,92 @@ describe('ExpiredJobsTask', () => {
 
       await task.execute();
     });
+  });
+
+  it('should handle expired running job based on job definition lockTTL', async () => {
+    const customLockTTL = '5m'; // 5 minutes
+    const customLockTTLinMs = 5 * 60 * 1000;
+
+    const customJobDefinition: JobDefinition = {
+      ...defaultJobDefinition,
+      type: 'custom-lock-ttl-job',
+      lockTTL: customLockTTL,
+    };
+
+    jobs.set(customJobDefinition.type, customJobDefinition);
+
+    const jobId = await storage.createJob({
+      type: customJobDefinition.type,
+      data: defaultJob.data,
+      priority: 10,
+      status: 'running',
+      maxRetries: 3,
+      failCount: 0,
+      startedAt: now,
+    });
+
+    await storage.createJobRun({
+      jobId,
+      status: 'running',
+      startedAt: now,
+      touchedAt: now, // touched right now
+      attempt: 1,
+    });
+
+    // Advance time by more than lockTTL
+    await vi.advanceTimersByTimeAsync(customLockTTLinMs + 1000);
+
+    const failSpy = vi.spyOn(stateMachine, 'fail').mockResolvedValue(undefined);
+
+    await task.execute();
+
+    expect(failSpy).toHaveBeenCalledOnce();
+    expect(failSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: jobId }),
+      undefined,
+      false,
+      expect.any(Error),
+      expect.stringContaining('has not been touched since'),
+      expect.any(String)
+    );
+  });
+
+  it('should handle expired running job based on default lockTTL', async () => {
+    const defaultLockTTLinMs = 60 * 60 * 1000; // 1 hour default
+
+    const jobId = await storage.createJob({
+      type: defaultJobDefinition.type,
+      data: defaultJob.data,
+      priority: 10,
+      status: 'running',
+      maxRetries: 3,
+      failCount: 0,
+      startedAt: now,
+    });
+
+    await storage.createJobRun({
+      jobId,
+      status: 'running',
+      startedAt: now,
+      touchedAt: now, // touched right now
+      attempt: 1,
+    });
+
+    // Advance time by more than lockTTL
+    await vi.advanceTimersByTimeAsync(defaultLockTTLinMs + 1000);
+
+    const failSpy = vi.spyOn(stateMachine, 'fail').mockResolvedValue(undefined);
+
+    await task.execute();
+
+    expect(failSpy).toHaveBeenCalledOnce();
+    expect(failSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ id: jobId }),
+      undefined,
+      false,
+      expect.any(Error),
+      expect.stringContaining('has not been touched since'),
+      expect.any(String)
+    );
   });
 });

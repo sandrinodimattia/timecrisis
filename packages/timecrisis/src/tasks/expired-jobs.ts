@@ -1,9 +1,10 @@
 import { Logger } from '../logger/index.js';
 import { JobStorage } from '../storage/types.js';
+import { parseDuration } from '../lib/duration.js';
 import { JobStateMachine } from '../state-machine/index.js';
-import { LeaderElection } from '../concurrency/leader-election.js';
 import { getJobId, isJobLock } from '../concurrency/job-lock.js';
-import { JobExpiredError, JobLockExpiredError } from '../scheduler/types.js';
+import { LeaderElection } from '../concurrency/leader-election.js';
+import { JobDefinition, JobExpiredError, JobLockExpiredError } from '../scheduler/types.js';
 
 interface ExpiredJobsTaskConfig {
   /**
@@ -15,6 +16,11 @@ interface ExpiredJobsTaskConfig {
    * Storage backend.
    */
   storage: JobStorage;
+
+  /**
+   * List of job definitions.
+   */
+  jobs: Map<string, JobDefinition>;
 
   /**
    * State machine.
@@ -156,13 +162,14 @@ export class ExpiredJobsTask {
               error!.stack
             );
           } else if (job.status === 'running') {
+            const jobDef = this.cfg.jobs.get(job.type);
+            const lockTTL = jobDef?.lockTTL ? parseDuration(jobDef.lockTTL) : 60 * 60 * 1000;
+
             // For running jobs, we need to check their job runs
             const jobRuns = await this.cfg.storage.listJobRuns(job.id);
             const latestRun = jobRuns.find((run) => run.status === 'running');
             if (latestRun?.touchedAt) {
-              // Fail running jobs that haven't been touched in over an hour
-              const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-              if (latestRun.touchedAt < oneHourAgo) {
+              if (latestRun.touchedAt < new Date(now.getTime() - lockTTL)) {
                 const error = new JobExpiredError(
                   `Job "${job.id}" has not been touched since ${latestRun.touchedAt.toISOString()}`
                 );

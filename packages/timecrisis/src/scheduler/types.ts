@@ -309,6 +309,11 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
   expiresAfter?: string;
 
   /**
+   * How long until the running job is failed as expired.
+   **/
+  lockTTL?: string;
+
+  /**
    * Maximum number of concurrent executions.
    */
   concurrency: number;
