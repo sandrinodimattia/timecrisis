@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.14.0
+
+### Minor Changes
+
+- d14c759: feat: use the job name as a child logger
+
 ## 0.13.0
 
 ### Minor Changes

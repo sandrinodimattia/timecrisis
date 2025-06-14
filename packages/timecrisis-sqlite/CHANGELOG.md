@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.14.0
+
+### Minor Changes
+
+- d14c759: feat: use the job name as a child logger
+
+### Patch Changes
+
+- Updated dependencies [d14c759]
+  - @timecrisis/timecrisis@0.14.0
+
 ## 0.13.0
 
 ### Minor Changes
