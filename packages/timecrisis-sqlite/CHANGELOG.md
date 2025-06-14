@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.15.0
+
+### Minor Changes
+
+- 8a25b38: feat: expose logger on job context
+
+### Patch Changes
+
+- Updated dependencies [8a25b38]
+  - @timecrisis/timecrisis@0.15.0
+
 ## 0.14.0
 
 ### Minor Changes

@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.15.0
+
+### Minor Changes
+
+- 8a25b38: feat: expose logger on job context
+
 ## 0.14.0
 
 ### Minor Changes
