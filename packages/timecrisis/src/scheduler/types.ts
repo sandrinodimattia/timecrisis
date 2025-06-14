@@ -418,7 +418,16 @@ export class JobDefinitionNotFoundError extends SchedulerError {
 }
 
 /**
- * Thrown when a fork helper path is missing.
+ * Thrown when a job's data is invalid.
+ */
+export class InvalidJobDataError extends SchedulerError {
+  constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * Thrown when a fork helper path is missing for a fork mode job.
  */
 export class ForkHelperPathMissingError extends SchedulerError {
   constructor(type: string) {

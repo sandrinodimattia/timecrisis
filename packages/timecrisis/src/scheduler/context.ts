@@ -1,7 +1,8 @@
-import { JobStorage } from '../storage/types.js';
-import { JobContext, JobDefinition } from './types.js';
-import { formatLockName } from '../concurrency/job-lock.js';
+import { z } from 'zod';
 import { Logger } from '../logger/index.js';
+import { JobStorage } from '../storage/types.js';
+import { formatLockName } from '../concurrency/job-lock.js';
+import { JobContext, JobDefinition, InvalidJobDataError } from './types.js';
 
 /**
  * Implementation of the JobContext interface.
@@ -105,9 +106,17 @@ export class JobContextImpl implements JobContext {
    * Update the job data.
    */
   async updateData(data: Record<string, unknown>): Promise<void> {
-    const parsed = this.jobDefinition.schema.partial().parse(data);
+    try {
+      const parsed = this.jobDefinition.schema.partial().strict().parse(data);
+      await this.storage.updateJob(this.jobId, { data: parsed });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        throw new InvalidJobDataError(
+          `Validation error while updating job ${this.jobId}: ${error.errors && error.errors.length > 0 ? error.errors[0].message : error.message}`
+        );
+      }
 
-    // Update the parent job with the new data
-    await this.storage.updateJob(this.jobId, { data: parsed });
+      throw error;
+    }
   }
 }
