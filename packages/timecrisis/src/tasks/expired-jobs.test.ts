@@ -84,8 +84,7 @@ describe('ExpiredJobsTask', () => {
     vi.mocked(storage.listJobs).mockResolvedValue([]);
     await task.execute();
     expect(storage.listJobs).toHaveBeenCalledWith({
-      status: ['pending'],
-      expiresAtBefore: expect.any(Date),
+      status: ['pending', 'running'],
     });
     expect(storage.updateJob).not.toHaveBeenCalled();
   });
@@ -155,14 +154,14 @@ describe('ExpiredJobsTask', () => {
       jobId,
       status: 'failed',
       startedAt: now,
-      attempt: 1,
+      attempt: 2,
     });
 
     const runId = await storage.createJobRun({
       jobId,
       status: 'running',
       startedAt: now,
-      attempt: 2,
+      attempt: 3,
     });
 
     await storage.acquireLock(
@@ -236,8 +235,7 @@ describe('ExpiredJobsTask', () => {
 
     // Verify that listJobs was called with the correct filter
     expect(storage.listJobs).toHaveBeenCalledWith({
-      status: ['pending'],
-      expiresAtBefore: expect.any(Date),
+      status: ['pending', 'running'],
     });
   });
 
@@ -629,6 +627,102 @@ describe('ExpiredJobsTask', () => {
       const locks = await storage.listLocks({ worker: defaultValues.workerName });
       const jobLock = locks.find((lock) => formatLockName(jobId) === lock.lockId);
       expect(jobLock).toBeUndefined();
+    });
+
+    it('should fail running jobs that have not been touched in over an hour', async () => {
+      const jobId = await storage.createJob({
+        type: defaultJobDefinition.type,
+        data: defaultJob.data,
+        priority: 10,
+        status: 'running',
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        failCount: 0,
+        startedAt: now,
+      });
+
+      // Create a job run that was last touched more than an hour ago
+      const runId = await storage.createJobRun({
+        jobId,
+        status: 'running',
+        startedAt: now,
+        touchedAt: new Date(now.getTime() - 61 * 60 * 1000), // 61 minutes ago
+        attempt: 1,
+      });
+
+      await task.execute();
+
+      // Should fail the job run
+      expect(storage.updateJobRun).toHaveBeenCalledWith(runId, {
+        status: 'failed',
+        finishedAt: expect.any(Date),
+        error: expect.stringMatching('has not been touched since'),
+        errorStack: expect.stringMatching('has not been touched since'),
+        executionDuration: expect.any(Number),
+      });
+
+      // Should fail the job
+      expect(storage.updateJob).toHaveBeenCalledWith(jobId, {
+        status: 'failed',
+        failReason: expect.stringMatching('has not been touched since'),
+        failCount: 1,
+        finishedAt: expect.any(Date),
+      });
+    });
+
+    it('should not fail running jobs that have been touched recently', async () => {
+      const jobId = await storage.createJob({
+        type: defaultJobDefinition.type,
+        data: defaultJob.data,
+        priority: 10,
+        status: 'running',
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        failCount: 0,
+        startedAt: now,
+      });
+
+      // Create a job run that was last touched less than an hour ago
+      await storage.createJobRun({
+        jobId,
+        status: 'running',
+        startedAt: now,
+        touchedAt: new Date(now.getTime() - 30 * 60 * 1000), // 30 minutes ago
+        attempt: 1,
+      });
+
+      await task.execute();
+
+      // Should not update anything
+      expect(storage.updateJobRun).not.toHaveBeenCalled();
+      expect(storage.updateJob).not.toHaveBeenCalled();
+    });
+
+    it('should handle running jobs with no touchedAt timestamp', async () => {
+      const jobId = await storage.createJob({
+        type: defaultJobDefinition.type,
+        data: defaultJob.data,
+        priority: 10,
+        status: 'running',
+        maxRetries: 3,
+        backoffStrategy: 'exponential',
+        failCount: 0,
+        startedAt: now,
+      });
+
+      // Create a job run without a touchedAt timestamp
+      await storage.createJobRun({
+        jobId,
+        status: 'running',
+        startedAt: now,
+        attempt: 1,
+      });
+
+      await task.execute();
+
+      // Should not update anything since we can't determine if it's stale
+      expect(storage.updateJobRun).not.toHaveBeenCalled();
+      expect(storage.updateJob).not.toHaveBeenCalled();
     });
 
     it('should handle leadership changes during execution', async () => {

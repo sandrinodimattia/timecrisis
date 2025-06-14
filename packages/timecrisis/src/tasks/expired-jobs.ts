@@ -130,24 +130,53 @@ export class ExpiredJobsTask {
         }
       }
 
-      // We only need to check pending jobs, running jobs will be handled by the dead workers task.
-      const expiredJobs = await this.cfg.storage.listJobs({
-        status: ['pending'],
-        expiresAtBefore: now,
+      // We need to check both pending and running jobs
+      const jobs = await this.cfg.storage.listJobs({
+        status: ['pending', 'running'],
       });
 
       this.logger.debug('Checking for expired jobs', {
-        jobs: expiredJobs.length,
+        jobs: jobs.length,
       });
 
       // Check jobs which might be expired.
-      for (const job of expiredJobs) {
+      for (const job of jobs) {
         try {
-          // Fail the job.
-          const err = new JobExpiredError(
-            `Job "${job.id}" expired at ${job.expiresAt!.toISOString()}`
-          );
-          await this.cfg.stateMachine.fail(job, undefined, false, err, err.message, err.stack);
+          // Fail pending jobs that have expired
+          if (job.status === 'pending' && job.expiresAt && job.expiresAt < now) {
+            const error = new JobExpiredError(
+              `Job "${job.id}" expired at ${job.expiresAt.toISOString()}`
+            );
+            await this.cfg.stateMachine.fail(
+              job,
+              undefined,
+              false,
+              error!,
+              error!.message,
+              error!.stack
+            );
+          } else if (job.status === 'running') {
+            // For running jobs, we need to check their job runs
+            const jobRuns = await this.cfg.storage.listJobRuns(job.id);
+            const latestRun = jobRuns.find((run) => run.status === 'running');
+            if (latestRun?.touchedAt) {
+              // Fail running jobs that haven't been touched in over an hour
+              const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+              if (latestRun.touchedAt < oneHourAgo) {
+                const error = new JobExpiredError(
+                  `Job "${job.id}" has not been touched since ${latestRun.touchedAt.toISOString()}`
+                );
+                await this.cfg.stateMachine.fail(
+                  job,
+                  undefined,
+                  false,
+                  error!,
+                  error!.message,
+                  error!.stack
+                );
+              }
+            }
+          }
         } catch (err) {
           this.logger.error('Error processing expired job', {
             job_id: job.id,
