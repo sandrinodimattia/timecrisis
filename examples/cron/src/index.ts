@@ -7,7 +7,8 @@ import { JobScheduler, PinoLogger } from '@timecrisis/timecrisis';
 import { sendEmailJob } from './jobs/send-email';
 
 const runScheduler = async () => {
-  const logger = pino({ name: 'basic-example' });
+  // Use 'debug' for more verbose logs.
+  const logger = pino({ name: 'basic-example', level: 'info' });
 
   const db = new Database('db.sqlite');
   db.pragma('journal_mode = WAL');
@@ -20,9 +21,7 @@ const runScheduler = async () => {
   const scheduler = new JobScheduler({
     storage,
     logger: new PinoLogger({
-      options: {
-        level: 'info',
-      },
+      instance: logger,
     }),
     maxConcurrentJobs: 10,
     // Check for new jobs every 500 ms
@@ -45,20 +44,23 @@ const runScheduler = async () => {
   await scheduler.start();
   logger.info('Job scheduler started');
 
-  // Enqueue a sample sendEmail job
-  const jobData = {
-    to: 'recipient@example.com',
-    subject: 'Test Email',
-    body: 'This is a test email sent from the job scheduler.',
-  };
+  const jobId = await scheduler.schedule(
+    'newsletter-cron',
+    'send-email',
+    {
+      to: 'recipient@example.com',
+      subject: 'Test Email',
+      body: 'This is a test email sent from the job scheduler.',
+    },
+    {
+      referenceId: '123',
+      scheduleValue: '51 09 * * *',
+      scheduleType: 'cron',
+      timeZone: 'Europe/Paris',
+    }
+  );
 
-  const jobId = await scheduler.schedule('newsletter-cron', 'sendEmail', jobData, {
-    scheduleValue: '38 22 * * *',
-    scheduleType: 'cron',
-    timeZone: 'Europe/Paris',
-  });
-
-  logger.info(`Enqueued sendEmail job with ID: ${jobId}`);
+  logger.info(`Scheduled send-email job with ID: ${jobId}`);
 };
 
 runScheduler().catch((error) => {

@@ -1,10 +1,6 @@
 import { z } from 'zod';
 import { JobContext, JobDefinition } from '@timecrisis/timecrisis';
 
-import { pino } from 'pino';
-
-const logger = pino({ name: 'send-email' });
-
 const schema = z.object({
   to: z.string().email(),
   subject: z.string(),
@@ -12,14 +8,22 @@ const schema = z.object({
 });
 
 export const sendEmailJob: JobDefinition<typeof schema> = {
-  type: 'sendEmail',
+  type: 'send-email',
   concurrency: 5,
   priority: 10,
   schema,
   handle: async (data: z.infer<typeof schema>, ctx: JobContext) => {
-    logger.info({ data }, 'Sending email');
+    ctx.logger.info('Sending email', { data });
 
     // Persist the log.
     await ctx.persistLog('info', `Email sent: ${data.subject}`);
+
+    // Update the job data.
+    await ctx.updateData({
+      status: 'sent',
+      sentAt: new Date().toISOString(),
+    });
+
+    ctx.logger.info('Email sent', { data, sentAt: new Date().toISOString() });
   },
 };
