@@ -33,7 +33,7 @@ export class JobContextImpl implements JobContext {
     payload: unknown,
     shutdownRef: WeakRef<{ isShuttingDown: boolean }>
   ) {
-    this.logger = logger;
+    this.logger = logger.child(`job/${jobDefinition.type}`);
     this.storage = storage;
     this.jobDefinition = jobDefinition;
     this.worker = worker;
