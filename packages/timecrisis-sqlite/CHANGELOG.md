@@ -1,5 +1,20 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.13.0
+
+### Minor Changes
+
+- 813a3ac: feat: allow specifying the lockTTL on a job definition level
+- 8f6af90: feat: expire running jobs that haven't been touched in an hour
+- a242fd4: feat: support expiration at the job definition level
+
+### Patch Changes
+
+- Updated dependencies [813a3ac]
+- Updated dependencies [8f6af90]
+- Updated dependencies [a242fd4]
+  - @timecrisis/timecrisis@0.13.0
+
 ## 0.12.0
 
 ### Minor Changes
