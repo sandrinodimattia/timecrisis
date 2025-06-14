@@ -339,6 +339,11 @@ export interface JobDefinition<T extends z.ZodObject<any> = z.ZodObject<any>> {
  */
 export interface JobContext {
   /**
+   * The logger instance for the job.
+   */
+  logger: Logger;
+
+  /**
    * The unique identifier of the job being executed
    */
   jobId: string;
