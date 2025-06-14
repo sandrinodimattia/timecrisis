@@ -19,10 +19,10 @@ async function handleSendWelcomeEmail(
   data: z.infer<typeof sendWelcomeEmailSchema>,
   ctx: JobContext
 ) {
-  await ctx.log('info', `Sending welcome email to ${data.email}`);
+  await ctx.persistLog('info', `Sending welcome email to ${data.email}`);
   // Your email sending logic here
   await new Promise((res) => setTimeout(res, 500)); // Simulate network delay
-  await ctx.log('info', 'Welcome email sent successfully.');
+  await ctx.persistLog('info', 'Welcome email sent successfully.');
 }
 
 export const sendWelcomeEmailJob: JobDefinition<typeof sendWelcomeEmailSchema> = {
@@ -51,14 +51,14 @@ const processPaymentSchema = z.object({
 });
 
 async function handleProcessPayment(data: z.infer<typeof processPaymentSchema>, ctx: JobContext) {
-  await ctx.log('info', `Processing payment for order ${data.orderId}`);
+  await ctx.persistLog('info', `Processing payment for order ${data.orderId}`);
   try {
     // Your payment processing logic here
     // This might fail, triggering a retry
     await somePaymentGateway.charge(data.amount);
-    await ctx.log('info', 'Payment successful.');
+    await ctx.persistLog('info', 'Payment successful.');
   } catch (error) {
-    await ctx.log('error', 'Payment processing failed.', { error });
+    await ctx.persistLog('error', 'Payment processing failed.', { error });
     throw error; // Re-throw to signal failure to the scheduler
   }
 }
@@ -92,12 +92,12 @@ const generateReportSchema = z.object({
 });
 
 async function handleGenerateReport(data: z.infer<typeof generateReportSchema>, ctx: JobContext) {
-  await ctx.log('info', `Generating report ${data.reportId}`);
+  await ctx.persistLog('info', `Generating report ${data.reportId}`);
   const totalSteps = 100;
 
   for (let step = 1; step <= totalSteps; step++) {
     if (ctx.isShuttingDown) {
-      await ctx.log('warn', 'Shutdown signal received, aborting report generation.');
+      await ctx.persistLog('warn', 'Shutdown signal received, aborting report generation.');
       return; // Exit gracefully
     }
 
@@ -111,7 +111,7 @@ async function handleGenerateReport(data: z.infer<typeof generateReportSchema>, 
     }
   }
 
-  await ctx.log('info', `Report ${data.reportId} generated successfully.`);
+  await ctx.persistLog('info', `Report ${data.reportId} generated successfully.`);
 }
 
 export const generateReportJob: JobDefinition<typeof generateReportSchema> = {
