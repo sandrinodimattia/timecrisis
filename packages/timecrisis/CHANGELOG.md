@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.16.0
+
+### Minor Changes
+
+- 383468e: fix: validate data when persisting updates in a job
+
 ## 0.15.0
 
 ### Minor Changes

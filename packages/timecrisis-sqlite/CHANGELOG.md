@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.16.0
+
+### Minor Changes
+
+- 383468e: fix: validate data when persisting updates in a job
+
+### Patch Changes
+
+- Updated dependencies [383468e]
+  - @timecrisis/timecrisis@0.16.0
+
 ## 0.15.0
 
 ### Minor Changes
