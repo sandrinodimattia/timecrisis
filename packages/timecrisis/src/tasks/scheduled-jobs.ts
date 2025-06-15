@@ -162,6 +162,7 @@ export class ScheduledJobsTask {
             type: job.type,
             schedule_type: job.scheduleType,
             schedule_value: job.scheduleValue,
+            time_zone: job.timeZone,
           });
 
           // Execute the job
@@ -194,6 +195,7 @@ export class ScheduledJobsTask {
                 type: job.type,
                 schedule_type: job.scheduleType,
                 schedule_value: job.scheduleValue,
+                time_zone: job.timeZone,
                 next_run_at: nextRun,
               });
               updates.nextRunAt = nextRun;
