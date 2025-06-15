@@ -95,6 +95,11 @@ export class LeaderElection {
         this.leaderLock = await this.distributedLock.acquire(this.LOCK_NAME);
         if (this.leaderLock) {
           this.logger.info('Acquired leader lock');
+
+          // Ensure worker is registered when leadership is acquired
+          await this.cfg.storage.registerWorker({
+            name: this.cfg.node,
+          });
         }
       }
 

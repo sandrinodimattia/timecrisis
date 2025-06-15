@@ -669,7 +669,19 @@ export class MockJobStorage implements JobStorage {
     // Parse and validate the registration data
     const validWorker = RegisterWorkerSchema.parse(worker);
 
-    // Create the worker instance with validated data
+    // Check if worker already exists
+    const existingWorker = this.workers.get(validWorker.name);
+    if (existingWorker) {
+      // If worker exists, only update the last_heartbeat
+      const updatedWorker = WorkerSchema.parse({
+        ...existingWorker,
+        last_heartbeat: now,
+      });
+      this.workers.set(validWorker.name, updatedWorker);
+      return validWorker.name;
+    }
+
+    // Create new worker instance with validated data
     const workerInstance = WorkerSchema.parse({
       ...validWorker,
       first_seen: now,

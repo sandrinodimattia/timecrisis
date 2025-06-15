@@ -331,4 +331,67 @@ describe('LeaderElection', () => {
       expect(onLost).not.toHaveBeenCalled();
     }
   });
+
+  it('should register worker when leadership is acquired', async () => {
+    await leader.start();
+    expect(leader.isCurrentLeader()).toBe(true);
+
+    // Verify worker was registered
+    const worker = await storage.getWorker(defaultValues.workerName);
+    expect(worker).toBeDefined();
+    expect(worker?.name).toBe(defaultValues.workerName);
+    expect(worker?.first_seen).toBeDefined();
+    expect(worker?.last_heartbeat).toBeDefined();
+  });
+
+  it('should preserve worker registration when leadership is renewed', async () => {
+    const initialTime = new Date('2024-01-01T00:00:00.000Z');
+    const laterTime = new Date('2024-01-01T00:01:00.000Z');
+
+    vi.setSystemTime(initialTime);
+    await leader.start();
+    expect(leader.isCurrentLeader()).toBe(true);
+
+    // Get initial worker state
+    const initialWorker = await storage.getWorker(defaultValues.workerName);
+    expect(initialWorker).toBeDefined();
+    const initialFirstSeen = initialWorker?.first_seen;
+    expect(initialFirstSeen?.getTime()).toEqual(initialTime.getTime());
+
+    await leader.stop();
+    // Set a later time for renewal
+    vi.setSystemTime(laterTime);
+
+    // Fast-forward time to trigger renewal
+    await vi.advanceTimersByTimeAsync(defaultValues.lockTTL);
+
+    // Verify worker still exists with same first_seen
+    const renewedWorker = await storage.getWorker(defaultValues.workerName);
+    expect(renewedWorker).toBeDefined();
+    expect(renewedWorker?.first_seen).toEqual(initialFirstSeen);
+    expect(renewedWorker?.last_heartbeat).toEqual(initialTime);
+  });
+
+  it('should preserve worker registration when leadership is lost', async () => {
+    await leader.start();
+    expect(leader.isCurrentLeader()).toBe(true);
+
+    // Get initial worker state
+    const initialWorker = await storage.getWorker(defaultValues.workerName);
+    expect(initialWorker).toBeDefined();
+    const initialFirstSeen = initialWorker?.first_seen;
+
+    // Simulate another node taking leadership
+    await storage.simulateOtherLeader('timecrisis/leader', defaultValues.lockTTL);
+
+    // Force an immediate leadership check
+    await leader.stop();
+    await leader.start();
+    expect(leader.isCurrentLeader()).toBe(false);
+
+    // Verify worker still exists with same first_seen
+    const workerAfterLoss = await storage.getWorker(defaultValues.workerName);
+    expect(workerAfterLoss).toBeDefined();
+    expect(workerAfterLoss?.first_seen).toEqual(initialFirstSeen);
+  });
 });
