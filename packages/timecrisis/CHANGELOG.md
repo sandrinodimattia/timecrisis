@@ -1,5 +1,11 @@
 # Time Crisis Job Scheduler
 
+## 0.17.0
+
+### Minor Changes
+
+- c2f32b7: fix: make sure there is a worker registration when the leadership is acquired
+
 ## 0.16.0
 
 ### Minor Changes

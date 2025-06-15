@@ -1,5 +1,16 @@
 # Time Crisis SQLite Storage Adapter
 
+## 0.17.0
+
+### Minor Changes
+
+- c2f32b7: fix: make sure there is a worker registration when the leadership is acquired
+
+### Patch Changes
+
+- Updated dependencies [c2f32b7]
+  - @timecrisis/timecrisis@0.17.0
+
 ## 0.16.0
 
 ### Minor Changes
